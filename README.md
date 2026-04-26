@@ -12,6 +12,8 @@ image, and other downloadable files, then show them by category for download.
 - URL source classification is available for Douyin, X, YouTube, Bilibili, and
   Other.
 - Common web page fetching and HTML resource extraction are connected.
+- Download queue is connected. Resources can be queued and saved into the app's
+  `VideoDownloader` documents folder.
 - Platform-specific Douyin, X, YouTube, and Bilibili parsers are not connected
   yet.
 
@@ -51,14 +53,17 @@ Acceptance:
 ### 3. Download Queue
 
 - Replace the current snackbar-only download action with a download task model.
+  Done.
+- Save downloads into the app documents directory. Done.
 - Let users choose a save directory.
-- Show download states: pending, downloading, completed, failed, canceled.
+- Show download states: pending, downloading, completed, failed, canceled. Done.
 - Preserve meaningful file names where possible.
 
 Acceptance:
 
-- Clicking a resource creates a task instead of only showing a toast.
-- Failed downloads keep an error message that is useful for retrying.
+- Clicking a resource creates a task instead of only showing a toast. Done.
+- Failed downloads keep an error message that is useful for retrying. Done.
+- Queued tasks run sequentially and can be canceled before completion. Done.
 
 ### 4. Platform Parsers
 
