@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675">
+  <rect width="1200" height="675" fill="#384955"/>
+  <rect x="96" y="90" width="1008" height="495" rx="8" fill="#f7f8fa"/>
+  <circle cx="286" cy="290" r="92" fill="#f2b84b"/>
+  <path d="M140 546L432 350L610 468L774 374L1064 546Z" fill="#78a86b"/>
+  <text x="600" y="170" text-anchor="middle" font-family="Arial, sans-serif" font-size="46" fill="#263238">Large Hero Image</text>
+</svg>

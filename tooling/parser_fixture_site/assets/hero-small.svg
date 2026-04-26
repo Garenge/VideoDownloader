@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">
+  <rect width="640" height="360" fill="#2f6f73"/>
+  <rect x="42" y="52" width="556" height="256" rx="8" fill="#f7f8fa"/>
+  <circle cx="152" cy="154" r="54" fill="#f2b84b"/>
+  <path d="M86 288L238 196L334 256L414 206L568 288Z" fill="#78a86b"/>
+  <text x="320" y="92" text-anchor="middle" font-family="Arial, sans-serif" font-size="28" fill="#263238">Hero Image</text>
+</svg>

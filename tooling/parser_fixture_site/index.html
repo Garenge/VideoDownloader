@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>VideoDownloader Parser Fixture</title>
+    <meta property="og:image" content="/assets/og-cover.svg">
+    <meta property="og:video" content="/media/og-video.mp4">
+    <link rel="preload" href="/assets/catalog.json" as="fetch">
+  </head>
+  <body>
+    <main>
+      <h1>Parser Fixture</h1>
+      <p>Local page with image, video, Open Graph, JSON-LD, and file links.</p>
+
+      <picture>
+        <source srcset="/assets/hero-large.svg 1200w, /assets/hero-small.svg 640w">
+        <img src="/assets/hero-small.svg" width="640" height="360" alt="Hero image">
+      </picture>
+
+      <video controls poster="/assets/poster.svg">
+        <source src="/media/sample.mp4" type="video/mp4">
+        <source src="/media/sample.webm" type="video/webm">
+      </video>
+
+      <a href="/assets/catalog.json">Catalog JSON</a>
+
+      <script type="application/ld+json">
+        {
+          "@context": "https://schema.org",
+          "@type": "VideoObject",
+          "name": "Fixture Video",
+          "thumbnailUrl": "/assets/jsonld-thumb.svg",
+          "contentUrl": "/media/jsonld-video.mp4"
+        }
+      </script>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <rect width="1280" height="720" fill="#202124"/>
+  <rect x="140" y="120" width="1000" height="480" rx="8" fill="#4e8f9f"/>
+  <polygon points="570,270 570,450 730,360" fill="#ffffff"/>
+  <text x="640" y="650" text-anchor="middle" font-family="Arial, sans-serif" font-size="40" fill="#ffffff">Open Graph Cover</text>
+</svg>
