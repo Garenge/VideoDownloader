@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:file_selector/file_selector.dart';
 
 import 'download_queue_controller.dart';
+import 'download_queue_panel.dart';
 import 'source_parser_service.dart';
 import 'source_resource.dart';
 
@@ -86,6 +88,33 @@ class _SourceParserHomePageState extends State<SourceParserHomePage> {
     ).showSnackBar(SnackBar(content: Text('已加入下载队列：${task.fileName}')));
   }
 
+  Future<void> _handleSelectDownloadDirectory() async {
+    final directoryPath = await getDirectoryPath(confirmButtonText: '选择保存目录');
+    if (directoryPath == null || directoryPath.trim().isEmpty) {
+      return;
+    }
+
+    _downloadQueueController.setDownloadDirectory(directoryPath);
+  }
+
+  void _handleResetDownloadDirectory() {
+    _downloadQueueController.resetDownloadDirectory();
+  }
+
+  Future<void> _handleOpenDownloadedFolder(DownloadTask task) async {
+    try {
+      await _downloadQueueController.openDownloadedFolder(task);
+    } on Object catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('打开文件夹失败：$error')));
+    }
+  }
+
   void _selectType(SourceResourceType? type) {
     setState(() {
       _selectedType = type;
@@ -109,6 +138,8 @@ class _SourceParserHomePageState extends State<SourceParserHomePage> {
                       _buildHeader(context),
                       const SizedBox(height: 22),
                       _buildParserPanel(context),
+                      const SizedBox(height: 20),
+                      _buildDownloadSettingsSection(context),
                       const SizedBox(height: 20),
                       _buildResultSection(context),
                       const SizedBox(height: 20),
@@ -256,6 +287,19 @@ class _SourceParserHomePageState extends State<SourceParserHomePage> {
     );
   }
 
+  Widget _buildDownloadSettingsSection(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _downloadQueueController,
+      builder: (context, _) {
+        return DownloadSettingsPanel(
+          selectedDirectoryPath: _downloadQueueController.selectedDirectoryPath,
+          onSelectDirectory: _handleSelectDownloadDirectory,
+          onResetDirectory: _handleResetDownloadDirectory,
+        );
+      },
+    );
+  }
+
   Widget _buildDownloadQueueSection(BuildContext context) {
     return AnimatedBuilder(
       animation: _downloadQueueController,
@@ -264,9 +308,10 @@ class _SourceParserHomePageState extends State<SourceParserHomePage> {
           return const SizedBox.shrink();
         }
 
-        return _DownloadQueuePanel(
+        return DownloadQueuePanel(
           tasks: _downloadQueueController.tasks,
           onCancel: _downloadQueueController.cancel,
+          onOpenFolder: _handleOpenDownloadedFolder,
         );
       },
     );
@@ -445,193 +490,6 @@ class _SourceParserHomePageState extends State<SourceParserHomePage> {
       SourceResourceType.video => Icons.movie,
       SourceResourceType.image => Icons.image,
       SourceResourceType.other => Icons.description,
-    };
-  }
-}
-
-class _DownloadQueuePanel extends StatelessWidget {
-  const _DownloadQueuePanel({required this.tasks, required this.onCancel});
-
-  final List<DownloadTask> tasks;
-  final ValueChanged<DownloadTask> onCancel;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.download_for_offline, size: 20),
-                const SizedBox(width: 8),
-                Text(
-                  '下载队列',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
-                ),
-                const Spacer(),
-                _CountPill(label: '任务', count: tasks.length),
-              ],
-            ),
-            const SizedBox(height: 10),
-            for (final task in tasks) ...[
-              _DownloadTaskTile(task: task, onCancel: () => onCancel(task)),
-              if (task != tasks.last) const Divider(height: 14),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _DownloadTaskTile extends StatelessWidget {
-  const _DownloadTaskTile({required this.task, required this.onCancel});
-
-  final DownloadTask task;
-  final VoidCallback onCancel;
-
-  @override
-  Widget build(BuildContext context) {
-    final canCancel =
-        task.status == DownloadStatus.pending ||
-        task.status == DownloadStatus.downloading;
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _DownloadStatusIcon(status: task.status),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      task.fileName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    task.status.displayName,
-                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              LinearProgressIndicator(
-                value: task.status == DownloadStatus.downloading
-                    ? task.progress == 0
-                          ? null
-                          : task.progress
-                    : task.progress,
-                minHeight: 6,
-                borderRadius: BorderRadius.circular(6),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                _taskDetail,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
-        ),
-        if (canCancel) ...[
-          const SizedBox(width: 8),
-          IconButton(
-            onPressed: onCancel,
-            tooltip: '取消',
-            icon: const Icon(Icons.close),
-          ),
-        ],
-      ],
-    );
-  }
-
-  String get _taskDetail {
-    final error = task.errorMessage;
-    if (error != null) {
-      return error;
-    }
-
-    final filePath = task.filePath;
-    if (filePath != null && task.status == DownloadStatus.completed) {
-      return filePath;
-    }
-
-    return task.progressLabel;
-  }
-}
-
-class _DownloadStatusIcon extends StatelessWidget {
-  const _DownloadStatusIcon({required this.status});
-
-  final DownloadStatus status;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        color: _backgroundColor(context),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Icon(_icon, color: _foregroundColor(context)),
-    );
-  }
-
-  Color _backgroundColor(BuildContext context) {
-    return switch (status) {
-      DownloadStatus.completed => Colors.green.shade100,
-      DownloadStatus.failed => Theme.of(context).colorScheme.errorContainer,
-      DownloadStatus.canceled => Theme.of(context).colorScheme.surfaceContainer,
-      DownloadStatus.pending || DownloadStatus.downloading => Theme.of(
-        context,
-      ).colorScheme.secondaryContainer,
-    };
-  }
-
-  Color _foregroundColor(BuildContext context) {
-    return switch (status) {
-      DownloadStatus.completed => Colors.green.shade800,
-      DownloadStatus.failed => Theme.of(context).colorScheme.onErrorContainer,
-      DownloadStatus.canceled => Theme.of(context).colorScheme.onSurfaceVariant,
-      DownloadStatus.pending || DownloadStatus.downloading => Theme.of(
-        context,
-      ).colorScheme.onSecondaryContainer,
-    };
-  }
-
-  IconData get _icon {
-    return switch (status) {
-      DownloadStatus.pending => Icons.schedule,
-      DownloadStatus.downloading => Icons.downloading,
-      DownloadStatus.completed => Icons.check,
-      DownloadStatus.failed => Icons.error_outline,
-      DownloadStatus.canceled => Icons.block,
     };
   }
 }

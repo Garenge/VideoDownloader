@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'source_resource.dart';
 
 typedef DownloadDirectoryResolver = Future<Directory> Function();
+typedef FolderOpener = Future<void> Function(String path);
 
 enum DownloadStatus {
   pending('等待中'),
@@ -72,21 +73,26 @@ class DownloadQueueController extends ChangeNotifier {
   DownloadQueueController({
     http.Client? client,
     DownloadDirectoryResolver? downloadDirectoryResolver,
+    FolderOpener? folderOpener,
   }) : _client = client ?? http.Client(),
        _ownsClient = client == null,
+       _folderOpener = folderOpener ?? _defaultFolderOpener,
        _downloadDirectoryResolver =
            downloadDirectoryResolver ?? _defaultDownloadDirectory;
 
   final http.Client _client;
   final bool _ownsClient;
+  final FolderOpener _folderOpener;
   final DownloadDirectoryResolver _downloadDirectoryResolver;
   final List<DownloadTask> _tasks = [];
   final Set<String> _cancelRequestedTaskIds = {};
 
+  Directory? _selectedDirectory;
   bool _isRunning = false;
 
   List<DownloadTask> get tasks => List.unmodifiable(_tasks);
   bool get hasTasks => _tasks.isNotEmpty;
+  String? get selectedDirectoryPath => _selectedDirectory?.path;
 
   @override
   void dispose() {
@@ -109,6 +115,16 @@ class DownloadQueueController extends ChangeNotifier {
     return task;
   }
 
+  void setDownloadDirectory(String path) {
+    _selectedDirectory = Directory(path);
+    notifyListeners();
+  }
+
+  void resetDownloadDirectory() {
+    _selectedDirectory = null;
+    notifyListeners();
+  }
+
   void cancel(DownloadTask task) {
     if (task.status == DownloadStatus.pending) {
       task.status = DownloadStatus.canceled;
@@ -119,6 +135,15 @@ class DownloadQueueController extends ChangeNotifier {
     if (task.status == DownloadStatus.downloading) {
       _cancelRequestedTaskIds.add(task.id);
     }
+  }
+
+  Future<void> openDownloadedFolder(DownloadTask task) async {
+    final filePath = task.filePath;
+    if (filePath == null || task.status != DownloadStatus.completed) {
+      throw const DownloadException('下载完成后才能打开文件夹');
+    }
+
+    await _folderOpener(File(filePath).parent.path);
   }
 
   Future<void> _runNext() async {
@@ -146,7 +171,8 @@ class DownloadQueueController extends ChangeNotifier {
       task.errorMessage = null;
       notifyListeners();
 
-      final directory = await _downloadDirectoryResolver();
+      final directory =
+          _selectedDirectory ?? await _downloadDirectoryResolver();
       await directory.create(recursive: true);
       outputFile = await _uniqueFile(directory, task.fileName);
 
@@ -202,6 +228,28 @@ class DownloadQueueController extends ChangeNotifier {
   static Future<Directory> _defaultDownloadDirectory() async {
     final documentsDirectory = await getApplicationDocumentsDirectory();
     return Directory('${documentsDirectory.path}/VideoDownloader');
+  }
+
+  static Future<void> _defaultFolderOpener(String path) async {
+    final command = _openFolderCommand(path);
+    final result = await Process.run(command.executable, command.arguments);
+    if (result.exitCode != 0) {
+      throw DownloadException(
+        'lib/source_parser/download_queue_controller.dart#_defaultFolderOpener: ${result.stderr}',
+      );
+    }
+  }
+
+  static _OpenFolderCommand _openFolderCommand(String path) {
+    if (Platform.isMacOS) {
+      return _OpenFolderCommand('open', [path]);
+    }
+
+    if (Platform.isWindows) {
+      return _OpenFolderCommand('explorer', [path]);
+    }
+
+    return _OpenFolderCommand('xdg-open', [path]);
   }
 
   static Future<File> _uniqueFile(Directory directory, String fileName) async {
@@ -260,6 +308,13 @@ class _FileNameParts {
 
   final String name;
   final String extension;
+}
+
+class _OpenFolderCommand {
+  const _OpenFolderCommand(this.executable, this.arguments);
+
+  final String executable;
+  final List<String> arguments;
 }
 
 class DownloadException implements Exception {
