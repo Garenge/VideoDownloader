@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -29,6 +30,48 @@ void main() {
     final result = await service.parse('https://www.bilibili.com/video/BV1xx');
 
     expect(result.platform, SourcePlatform.bilibili);
+  });
+
+  test('parses youtube public oembed thumbnail metadata', () async {
+    const watchUrl = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+    final service = SourceParserService(
+      client: MockClient((request) async {
+        if (request.url.path == '/oembed') {
+          expect(
+            request.url.queryParameters['url'],
+            watchUrl,
+          );
+          return http.Response(
+            jsonEncode({
+              'title': 'Demo Video',
+              'author_name': 'Demo Channel',
+              'thumbnail_url':
+                  'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg',
+            }),
+            200,
+            request: request,
+          );
+        }
+
+        return http.Response(_minimalHtml, 200, request: request);
+      }),
+    );
+
+    final result = await service.parse(watchUrl);
+    final images = result.resourcesOf(SourceResourceType.image);
+    final videos = result.resourcesOf(SourceResourceType.video);
+
+    expect(result.platform, SourcePlatform.youtube);
+    expect(images.first.title, 'YouTube 封面：Demo Video');
+    expect(
+      images.first.url,
+      'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg',
+    );
+    expect(images.first.sizeHint, 'YouTube oEmbed · Demo Channel');
+    expect(videos, hasLength(1));
+    expect(videos.first.youtubeVideoId, 'dQw4w9WgXcQ');
+    expect(videos.first.title, 'YouTube 视频：Demo Video');
+    expect(videos.first.url, watchUrl);
   });
 }
 
