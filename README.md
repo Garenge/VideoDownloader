@@ -17,8 +17,19 @@ image, and other downloadable files, then show them by category for download.
 - Users can choose a custom download directory and reset to the default app
   documents directory.
 - Completed download tasks can open their containing folder from the queue.
-- Platform-specific Douyin, X, YouTube, and Bilibili parsers are not connected
-  yet.
+- Parsed resources support thumbnail preview, search, host filtering, and file
+  extension filtering.
+- Recently parsed URLs are stored locally and can be reused or cleared.
+- Completed downloads are stored locally in download history and can be cleared.
+- YouTube public oEmbed metadata is used to extract video title, author, and
+  thumbnail cover when available.
+- YouTube parser also creates a downloadable "YouTube video" task when a valid
+  video id is detected.
+- Failed tasks can be retried directly from the queue panel.
+- YouTube download now uses a two-stage strategy:
+  `youtube_explode_dart` first, then `yt-dlp` fallback when needed.
+- Platform-specific Douyin, X, and Bilibili parsers are not connected yet.
+- YouTube platform parsing is in progress beyond metadata extraction.
 
 ## Development Roadmap
 
@@ -77,7 +88,7 @@ Acceptance:
 - X: inspect page metadata and public media URLs that are present without
   authentication.
 - YouTube: inspect public metadata, thumbnails, and exposed player/manifest data
-  where allowed.
+  where allowed. Started.
 - Bilibili: inspect public page state, player metadata, thumbnails, and exposed
   DASH/FLV resources where allowed.
 - Keep unsupported or protected resources visible as restricted items instead
@@ -85,31 +96,34 @@ Acceptance:
 
 Acceptance:
 
+- YouTube parser can return public oEmbed thumbnail metadata. Done.
 - Each platform parser can return at least thumbnails or metadata before full
-  video extraction is attempted.
+  video extraction is attempted. Started.
 - Protected, signed, login-only, or DRM-like resources are labeled clearly.
 
 ### 5. Resource Preview and Filtering
 
-- Add preview thumbnails for images and video cover resources.
+- Add preview thumbnails for images and video cover resources. Started.
 - Add filters by source platform, resource type, file extension, and host.
-- Add search within parsed results.
+  Started.
+- Add search within parsed results. Done.
 
 Acceptance:
 
-- Users can quickly narrow results when a page exposes many files.
-- Preview loading failures do not break the result list.
+- Users can quickly narrow results when a page exposes many files. Started.
+- Preview loading failures do not break the result list. Done.
 
 ### 6. Persistence and History
 
-- Store recently parsed URLs locally.
-- Store completed download history.
-- Allow clearing history from the app.
+- Store recently parsed URLs locally. Done.
+- Store completed download history. Done.
+- Allow clearing history from the app. Done.
 
 Acceptance:
 
-- Relaunching the app keeps recent parse and download history.
-- Users can remove stored history intentionally.
+- Relaunching the app keeps recent parse history. Done.
+- Relaunching the app keeps completed download history. Done.
+- Users can remove stored history intentionally. Done.
 
 ## Suggested Next Step
 
@@ -173,3 +187,66 @@ review changes, roll back experiments, and split future commits by purpose.
 
 Do not create commits automatically. Commit planning should happen only after a
 human asks for it.
+
+## YouTube Download Strategy (Phase 1)
+
+For YouTube resources, download is no longer a single-path network request.
+Current strategy:
+
+1. Try `youtube_explode_dart` to fetch metadata + stream manifest and download
+   a selected stream.
+2. If that fails (403/429/playability/client-specific issues), automatically
+   fall back to local `yt-dlp`.
+3. If both fail, return a readable queue error message and allow manual retry.
+
+This improves reliability for real-world URLs such as Shorts or videos with
+unstable client behavior.
+
+### Fallback details
+
+- `youtube_explode_dart` manifest tries multiple client combinations.
+- `yt-dlp` fallback runs with a defensive profile:
+  `--no-playlist -N 8 --retries 10 --fragment-retries 50 -f "bv*+ba/best" --merge-output-format mp4`.
+- Queue task metadata is updated from the actual downloaded file after fallback.
+
+### Operational note
+
+`yt-dlp` must be available in system `PATH` for fallback to work. If it is not
+installed, YouTube tasks can still succeed through `youtube_explode_dart`, but
+fallback will fail with an explicit error.
+
+## Troubleshooting (YouTube)
+
+- Error contains "请求过于频繁": wait and retry, or switch proxy route.
+- Error contains "拒绝访问/403": likely geo/account/policy limits on that stream.
+- Error contains "不可播放": age/region/copyright restrictions are likely.
+- Error shows `yt-dlp` not found: install `yt-dlp` and retry failed tasks.
+
+## Step-by-step implementation plan
+
+This project now follows a staged YouTube delivery plan:
+
+1. **Phase 1 (done/in progress)**
+   - Retry support in queue UI and controller.
+   - YouTube dual-engine strategy (`youtube_explode_dart` + `yt-dlp` fallback).
+   - Friendly error mapping for common YouTube failures.
+   - README strategy + troubleshooting docs.
+2. **Phase 2**
+   - Runtime capability checks (`yt-dlp`/`ffmpeg`) with UI visibility.
+   - Advanced settings for fallback behavior and optional cookie-based mode.
+3. **Phase 3**
+   - Engine module split for maintainability (done).
+   - Keep `DownloadQueueController` focused on queue orchestration, delegating
+     platform-specific download details to `download_engines/`.
+   - More scenario tests for strategy chains and edge failures (done).
+
+## Architecture notes (Phase 3)
+
+- `DownloadQueueController` orchestrates tasks, progress reporting, cancel and retry.
+- `download_engines/YouTubeDownloadEngine` handles YouTube specifics:
+  - `youtube_explode_dart` stream download
+  - manifest client fallback
+  - optional `yt-dlp` fallback with configurable arguments
+
+This separation keeps the queue stable while allowing YouTube download logic to
+iterate without touching unrelated queue code.

@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import 'source_parser/download_history_store.dart';
+import 'source_parser/parse_history_store.dart';
+import 'source_parser/proxy_settings_store.dart';
 import 'source_parser/source_parser_home_page.dart';
 import 'source_parser/source_parser_service.dart';
 
@@ -8,9 +11,18 @@ void main() {
 }
 
 class VideoDownloaderApp extends StatelessWidget {
-  const VideoDownloaderApp({super.key, this.parserService});
+  const VideoDownloaderApp({
+    super.key,
+    this.parserService,
+    this.parseHistoryStore,
+    this.downloadHistoryStore,
+    this.proxySettingsStore,
+  });
 
   final SourceParserService? parserService;
+  final ParseHistoryStore? parseHistoryStore;
+  final DownloadHistoryStore? downloadHistoryStore;
+  final ProxySettingsStore? proxySettingsStore;
 
   @override
   Widget build(BuildContext context) {
@@ -27,7 +39,12 @@ class VideoDownloaderApp extends StatelessWidget {
         scaffoldBackgroundColor: const Color(0xFFF7F8FA),
         useMaterial3: true,
       ),
-      home: SourceParserHomePage(parserService: parserService),
+      home: SourceParserHomePage(
+        parserService: parserService,
+        parseHistoryStore: parseHistoryStore,
+        downloadHistoryStore: downloadHistoryStore,
+        proxySettingsStore: proxySettingsStore,
+      ),
     );
   }
 }
