@@ -5,10 +5,18 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
+import 'download_history_store.dart';
+import 'download_settings.dart';
+import 'download_engines/youtube_download_engine.dart';
+import 'reveal_in_finder_macos.dart';
 import 'source_resource.dart';
 
 typedef DownloadDirectoryResolver = Future<Directory> Function();
 typedef FolderOpener = Future<void> Function(String path);
+typedef ProcessRunner =
+    Future<ProcessResult> Function(String executable, List<String> arguments);
+typedef ProcessStarter =
+    Future<Process> Function(String executable, List<String> arguments);
 
 enum DownloadStatus {
   pending('等待中'),
@@ -31,7 +39,7 @@ class DownloadTask {
 
   final String id;
   final SourceResource resource;
-  final String fileName;
+  String fileName;
 
   DownloadStatus status = DownloadStatus.pending;
   double progress = 0;
@@ -39,6 +47,24 @@ class DownloadTask {
   int? totalBytes;
   String? filePath;
   String? errorMessage;
+  /// 当前步骤说明（仅下载进行中时使用，结束后清空）。
+  String? statusDetail;
+  /// 本次进入「下载中」状态的时间，用于 UI 展示等待时长。
+  DateTime? activeStartedAt;
+  final List<String> _logs = [];
+
+  List<String> get logs => List.unmodifiable(_logs);
+
+  void clearLogs() {
+    _logs.clear();
+  }
+
+  void addLog(String message) {
+    final timestamp = DateTime.now().toIso8601String();
+    _logs.add('[$timestamp] $message');
+  }
+
+  String get logText => _logs.join('\n');
 
   String get progressLabel {
     final total = totalBytes;
@@ -46,8 +72,24 @@ class DownloadTask {
       return '100%';
     }
 
-    if (total == null || total == 0) {
-      return _formatBytes(receivedBytes);
+    if (status == DownloadStatus.pending) {
+      return '排队等待中…';
+    }
+
+    if (status == DownloadStatus.downloading) {
+      final waitSec = _connectingElapsedSeconds;
+      if (total != null && total > 0 && receivedBytes == 0) {
+        return '0% · 0 B / ${_formatBytes(total)}（缓冲中，已等待 ${waitSec}s）';
+      }
+      if ((total == null || total <= 0) && receivedBytes == 0) {
+        return '连接资源中（已等待 ${waitSec}s；若持续较久请检查网络或代理）…';
+      }
+    }
+
+    if (total == null || total <= 0) {
+      return receivedBytes > 0
+          ? '已接收 ${_formatBytes(receivedBytes)}（总大小未知）'
+          : '连接资源中…';
     }
 
     final percent = (progress * 100).clamp(0, 100).toStringAsFixed(0);
@@ -67,39 +109,100 @@ class DownloadTask {
     final mb = kb / 1024;
     return '${mb.toStringAsFixed(1)} MB';
   }
+
+  int get _connectingElapsedSeconds {
+    final start = activeStartedAt;
+    if (start == null) {
+      return 0;
+    }
+    return DateTime.now().difference(start).inSeconds;
+  }
+}
+
+final class _PollOutcome<T> {
+  const _PollOutcome(this.value);
+  final T value;
 }
 
 class DownloadQueueController extends ChangeNotifier {
   DownloadQueueController({
     http.Client? client,
+    bool? ownClient,
     DownloadDirectoryResolver? downloadDirectoryResolver,
     FolderOpener? folderOpener,
+    DownloadHistoryStore? downloadHistoryStore,
+    ProcessRunner? processRunner,
+    ProcessStarter? processStarter,
+    DownloadSettings? downloadSettings,
+    /// 为 `true` 时直连下载使用 `dart:io` [HttpClient]，可在连接阶段通过 [cancel] 中断。
+    /// 单元测试若使用 [MockClient]，请设为 `false`。
+    bool useIoHttpClientForDirectDownloads = true,
   }) : _client = client ?? http.Client(),
-       _ownsClient = client == null,
+       _ownsClient = ownClient ?? (client == null),
        _folderOpener = folderOpener ?? _defaultFolderOpener,
+       _downloadHistoryStore = downloadHistoryStore ?? DownloadHistoryStore(),
+       _processRunner = processRunner ?? _defaultProcessRunner,
+       _processStarter = processStarter ?? _defaultProcessStarter,
+       _settings = downloadSettings ?? const DownloadSettings.defaults(),
        _downloadDirectoryResolver =
-           downloadDirectoryResolver ?? _defaultDownloadDirectory;
+           downloadDirectoryResolver ?? _defaultDownloadDirectory,
+       _useIoHttpClientForDirectDownloads = useIoHttpClientForDirectDownloads {
+    unawaited(_loadDownloadHistory());
+  }
 
-  final http.Client _client;
-  final bool _ownsClient;
+  http.Client _client;
+  bool _ownsClient;
+  final bool _useIoHttpClientForDirectDownloads;
   final FolderOpener _folderOpener;
+  final DownloadHistoryStore _downloadHistoryStore;
+  final ProcessRunner _processRunner;
+  final ProcessStarter _processStarter;
+  DownloadSettings _settings;
   final DownloadDirectoryResolver _downloadDirectoryResolver;
   final List<DownloadTask> _tasks = [];
+  final List<DownloadHistoryRecord> _history = [];
   final Set<String> _cancelRequestedTaskIds = {};
 
   Directory? _selectedDirectory;
   bool _isRunning = false;
+  Timer? _downloadElapsedTicker;
+  HttpClient? _activeDownloadHttpClient;
 
   List<DownloadTask> get tasks => List.unmodifiable(_tasks);
+  List<DownloadHistoryRecord> get history => List.unmodifiable(_history);
   bool get hasTasks => _tasks.isNotEmpty;
+  bool get hasHistory => _history.isNotEmpty;
   String? get selectedDirectoryPath => _selectedDirectory?.path;
+  DownloadSettings get settings => _settings;
+
+  Future<void> updateDownloadSettings(DownloadSettings settings) async {
+    _settings = settings;
+    notifyListeners();
+  }
 
   @override
   void dispose() {
+    _stopDownloadElapsedTicker();
+    try {
+      _activeDownloadHttpClient?.close(force: true);
+    } on Object {
+      // ignore
+    }
+    _activeDownloadHttpClient = null;
     if (_ownsClient) {
       _client.close();
     }
     super.dispose();
+  }
+
+  void replaceHttpClient(http.Client newClient) {
+    if (_ownsClient) {
+      _client.close();
+    }
+
+    _client = newClient;
+    _ownsClient = true;
+    notifyListeners();
   }
 
   DownloadTask enqueue(SourceResource resource) {
@@ -134,7 +237,37 @@ class DownloadQueueController extends ChangeNotifier {
 
     if (task.status == DownloadStatus.downloading) {
       _cancelRequestedTaskIds.add(task.id);
+      try {
+        _activeDownloadHttpClient?.close(force: true);
+      } on Object {
+        // ignore
+      }
+      notifyListeners();
     }
+  }
+
+  /// 将失败任务重新加入待下载队列（保留同一 [DownloadTask] 与 [id]）。
+  void retry(DownloadTask task) {
+    if (task.status != DownloadStatus.failed) {
+      return;
+    }
+
+    task.status = DownloadStatus.pending;
+    task.progress = 0;
+    task.receivedBytes = 0;
+    task.totalBytes = null;
+    task.filePath = null;
+    task.errorMessage = null;
+    task.statusDetail = null;
+    task.activeStartedAt = null;
+    task.fileName = _fileNameFor(task.resource);
+    task.clearLogs();
+    task.addLog(
+      'lib/source_parser/download_queue_controller.dart#retry: 用户触发重试',
+    );
+    _cancelRequestedTaskIds.remove(task.id);
+    notifyListeners();
+    unawaited(_runNext());
   }
 
   Future<void> openDownloadedFolder(DownloadTask task) async {
@@ -142,8 +275,32 @@ class DownloadQueueController extends ChangeNotifier {
     if (filePath == null || task.status != DownloadStatus.completed) {
       throw const DownloadException('下载完成后才能打开文件夹');
     }
+    if (!await File(filePath).exists()) {
+      throw DownloadException('下载文件不存在，可能已被移动或删除：$filePath');
+    }
+    await _folderOpener(filePath);
+  }
 
-    await _folderOpener(File(filePath).parent.path);
+  Future<void> openHistoryFolder(DownloadHistoryRecord record) async {
+    final file = File(record.filePath);
+    if (!await file.exists()) {
+      throw DownloadException('历史文件不存在，可能已被移动或删除：${record.filePath}');
+    }
+    await _folderOpener(record.filePath);
+  }
+
+  Future<void> clearHistory() async {
+    await _downloadHistoryStore.clear();
+    _history.clear();
+    notifyListeners();
+  }
+
+  Future<void> _loadDownloadHistory() async {
+    final records = await _downloadHistoryStore.load();
+    _history
+      ..clear()
+      ..addAll(records);
+    notifyListeners();
   }
 
   Future<void> _runNext() async {
@@ -167,35 +324,148 @@ class DownloadQueueController extends ChangeNotifier {
   Future<void> _download(DownloadTask task) async {
     File? outputFile;
     try {
+      task.clearLogs();
+      task.addLog(
+        'lib/source_parser/download_queue_controller.dart#_download: start url=${task.resource.url}',
+      );
       task.status = DownloadStatus.downloading;
       task.errorMessage = null;
+      task.statusDetail = '准备下载…';
+      task.activeStartedAt = DateTime.now();
+      _startDownloadElapsedTicker();
       notifyListeners();
 
       final directory =
           _selectedDirectory ?? await _downloadDirectoryResolver();
+      task.addLog(
+        'lib/source_parser/download_queue_controller.dart#_download: directory=${directory.path}',
+      );
       await directory.create(recursive: true);
-      outputFile = await _uniqueFile(directory, task.fileName);
 
-      final request = http.Request('GET', Uri.parse(task.resource.url));
-      final response = await _client
-          .send(request)
-          .timeout(const Duration(seconds: 20));
-
-      if (response.statusCode < 200 || response.statusCode >= 400) {
-        throw DownloadException('HTTP ${response.statusCode}');
+      if (task.resource.youtubeVideoId != null) {
+        task.addLog(
+          'lib/source_parser/download_queue_controller.dart#_download: engine=youtube',
+        );
+        outputFile = await _downloadYouTube(task, directory);
+      } else {
+        task.addLog(
+          'lib/source_parser/download_queue_controller.dart#_download: engine=http',
+        );
+        outputFile = await _downloadHttp(task, directory);
       }
 
-      task.totalBytes = response.contentLength;
+      task.progress = 1;
+      task.status = DownloadStatus.completed;
+      task.statusDetail = null;
+      task.activeStartedAt = null;
+      task.addLog(
+        'lib/source_parser/download_queue_controller.dart#_download: completed file=${task.filePath ?? '-'}',
+      );
+      await _recordCompletedDownload(task);
+      notifyListeners();
+    } on DownloadCanceledException {
+      _cancelRequestedTaskIds.remove(task.id);
+      task.status = DownloadStatus.canceled;
+      task.errorMessage = null;
+      task.statusDetail = null;
+      task.activeStartedAt = null;
+      task.addLog(
+        'lib/source_parser/download_queue_controller.dart#_download: canceled by user',
+      );
+      await outputFile?.deleteIfExists();
+      notifyListeners();
+    } on Object catch (error) {
+      task.status = DownloadStatus.failed;
+      task.errorMessage = _friendlyDownloadError(error);
+      task.statusDetail = null;
+      task.activeStartedAt = null;
+      task.addLog(
+        'lib/source_parser/download_queue_controller.dart#_download: failed error=$error',
+      );
+      await outputFile?.deleteIfExists();
+      notifyListeners();
+    } finally {
+      _stopDownloadElapsedTicker();
+    }
+  }
+
+  void _startDownloadElapsedTicker() {
+    if (_downloadElapsedTicker != null) {
+      return;
+    }
+    _downloadElapsedTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!_tasks.any((t) => t.status == DownloadStatus.downloading)) {
+        _stopDownloadElapsedTicker();
+        return;
+      }
+      notifyListeners();
+    });
+  }
+
+  void _stopDownloadElapsedTicker() {
+    _downloadElapsedTicker?.cancel();
+    _downloadElapsedTicker = null;
+  }
+
+  Future<File> _downloadHttp(DownloadTask task, Directory directory) async {
+    if (!_useIoHttpClientForDirectDownloads) {
+      return _downloadHttpWithPackageClient(task, directory);
+    }
+
+    File? outputFile;
+    final uri = Uri.parse(task.resource.url);
+    final ioClient = HttpClient();
+    _activeDownloadHttpClient = ioClient;
+    try {
+      task.statusDetail = '直连：连接服务器…';
+      notifyListeners();
+
+      outputFile = await _uniqueFile(directory, task.fileName);
+
+      final req = await _pollUntilCancelOr<HttpClientRequest>(
+        ioClient.getUrl(uri),
+        task,
+        onAbortRequestedConnection: () => ioClient.close(force: true),
+      );
+
+      req.headers.set(HttpHeaders.userAgentHeader, 'VideoDownloader/1.0');
+
+      final ioResponse = await _pollUntilCancelOr<HttpClientResponse>(
+        req.close(),
+        task,
+        onAbortRequestedConnection: req.abort,
+      );
+
+      if (ioResponse.statusCode < 200 || ioResponse.statusCode >= 400) {
+        throw DownloadException('HTTP ${ioResponse.statusCode}');
+      }
+      task.addLog(
+        'lib/source_parser/download_queue_controller.dart#_downloadHttp: http=${ioResponse.statusCode} contentLength=${ioResponse.contentLength}',
+      );
+
+      final contentLength = ioResponse.contentLength;
+      task.totalBytes = contentLength >= 0 ? contentLength : null;
+      task.statusDetail = task.totalBytes != null && task.totalBytes! > 0
+          ? '直连下载中（已知文件大小）…'
+          : '直连下载中（未提供总大小，进度为估算）…';
       task.filePath = outputFile.path;
 
       final sink = outputFile.openWrite();
       try {
-        await for (final chunk in response.stream) {
-          if (_cancelRequestedTaskIds.remove(task.id)) {
+        await for (final chunk in ioResponse) {
+          if (_cancelRequestedTaskIds.contains(task.id)) {
+            try {
+              ioClient.close(force: true);
+            } on Object {
+              // ignore
+            }
             throw const DownloadCanceledException();
           }
 
           task.receivedBytes += chunk.length;
+          if (task.statusDetail != null && task.receivedBytes > 0) {
+            task.statusDetail = null;
+          }
           final totalBytes = task.totalBytes;
           if (totalBytes != null && totalBytes > 0) {
             task.progress = task.receivedBytes / totalBytes;
@@ -208,21 +478,159 @@ class DownloadQueueController extends ChangeNotifier {
         await sink.close();
       }
 
-      task.progress = 1;
-      task.status = DownloadStatus.completed;
-      notifyListeners();
+      return outputFile;
     } on DownloadCanceledException {
-      task.status = DownloadStatus.canceled;
-      task.errorMessage = null;
       await outputFile?.deleteIfExists();
-      notifyListeners();
-    } on Object catch (error) {
-      task.status = DownloadStatus.failed;
-      task.errorMessage =
-          'lib/source_parser/download_queue_controller.dart#_download: $error';
+      rethrow;
+    } on Object catch (error, stackTrace) {
       await outputFile?.deleteIfExists();
-      notifyListeners();
+      if (_cancelRequestedTaskIds.contains(task.id)) {
+        throw const DownloadCanceledException();
+      }
+      Error.throwWithStackTrace(error, stackTrace);
+    } finally {
+      if (identical(_activeDownloadHttpClient, ioClient)) {
+        _activeDownloadHttpClient = null;
+      }
+      try {
+        ioClient.close(force: false);
+      } on Object {
+        // ignore
+      }
     }
+  }
+
+  /// 在 [package:http] 直连路径下轮询取消（无法中断底层 TCP，适合测试桩）。
+  Future<File> _downloadHttpWithPackageClient(
+    DownloadTask task,
+    Directory directory,
+  ) async {
+    File? outputFile;
+    try {
+      task.statusDetail = '直连：连接服务器…';
+      notifyListeners();
+
+      outputFile = await _uniqueFile(directory, task.fileName);
+
+      final request = http.Request('GET', Uri.parse(task.resource.url));
+      final response = await _pollUntilCancelOr<http.StreamedResponse>(
+        _client.send(request).timeout(const Duration(seconds: 90)),
+        task,
+        onAbortRequestedConnection: () {},
+      );
+
+      if (response.statusCode < 200 || response.statusCode >= 400) {
+        throw DownloadException('HTTP ${response.statusCode}');
+      }
+      task.addLog(
+        'lib/source_parser/download_queue_controller.dart#_downloadHttpWithPackageClient: http=${response.statusCode} contentLength=${response.contentLength ?? -1}',
+      );
+
+      task.statusDetail = response.contentLength != null && response.contentLength! > 0
+          ? '直连下载中（已知文件大小）…'
+          : '直连下载中（未提供总大小，进度为估算）…';
+      task.totalBytes = response.contentLength;
+      task.filePath = outputFile.path;
+
+      final sink = outputFile.openWrite();
+      try {
+        await for (final chunk in response.stream) {
+          if (_cancelRequestedTaskIds.contains(task.id)) {
+            throw const DownloadCanceledException();
+          }
+
+          task.receivedBytes += chunk.length;
+          if (task.statusDetail != null && task.receivedBytes > 0) {
+            task.statusDetail = null;
+          }
+          final totalBytes = task.totalBytes;
+          if (totalBytes != null && totalBytes > 0) {
+            task.progress = task.receivedBytes / totalBytes;
+          }
+
+          sink.add(chunk);
+          notifyListeners();
+        }
+      } finally {
+        await sink.close();
+      }
+
+      return outputFile;
+    } on DownloadCanceledException {
+      await outputFile?.deleteIfExists();
+      rethrow;
+    } on Object catch (error, stackTrace) {
+      await outputFile?.deleteIfExists();
+      if (_cancelRequestedTaskIds.contains(task.id)) {
+        throw const DownloadCanceledException();
+      }
+      Error.throwWithStackTrace(error, stackTrace);
+    }
+  }
+
+  /// 约每 100ms 检查一次用户取消；若已请求取消则调用 [onAbortRequestedConnection] 并抛出 [DownloadCanceledException]。
+  Future<T> _pollUntilCancelOr<T>(
+    Future<T> operation,
+    DownloadTask task, {
+    required void Function() onAbortRequestedConnection,
+  }) async {
+    final outcome = operation.then((v) => _PollOutcome<T>(v));
+    while (true) {
+      final winner = await Future.any<Object?>([
+        outcome,
+        Future<Object?>.delayed(const Duration(milliseconds: 100)),
+      ]);
+      if (winner is _PollOutcome<T>) {
+        return winner.value;
+      }
+      if (_cancelRequestedTaskIds.contains(task.id)) {
+        try {
+          onAbortRequestedConnection();
+        } on Object {
+          // ignore
+        }
+        throw const DownloadCanceledException();
+      }
+    }
+  }
+
+  Future<File> _downloadYouTube(DownloadTask task, Directory directory) async {
+    final engine = YouTubeDownloadEngine(httpClient: _client);
+    return engine.download(
+      task: task,
+      directory: directory,
+      settings: _settings,
+      processRunner: _processRunner,
+      processStarter: _processStarter,
+      isCancelRequested: () => _cancelRequestedTaskIds.contains(task.id),
+      onProgressUpdated: notifyListeners,
+    );
+  }
+
+  static String _friendlyDownloadError(Object error) {
+    if (error is DownloadException) {
+      return error.message;
+    }
+    return 'lib/source_parser/download_queue_controller.dart#_download: $error';
+  }
+
+  Future<void> _recordCompletedDownload(DownloadTask task) async {
+    final filePath = task.filePath;
+    if (filePath == null) {
+      return;
+    }
+
+    final records = await _downloadHistoryStore.add(
+      DownloadHistoryRecord(
+        fileName: task.fileName,
+        filePath: filePath,
+        sourceUrl: task.resource.url,
+        completedAt: DateTime.now(),
+      ),
+    );
+    _history
+      ..clear()
+      ..addAll(records);
   }
 
   static Future<Directory> _defaultDownloadDirectory() async {
@@ -231,25 +639,171 @@ class DownloadQueueController extends ChangeNotifier {
   }
 
   static Future<void> _defaultFolderOpener(String path) async {
-    final command = _openFolderCommand(path);
-    final result = await Process.run(command.executable, command.arguments);
+    final entityType = FileSystemEntity.typeSync(path);
+    if (entityType == FileSystemEntityType.notFound) {
+      throw DownloadException(
+        'lib/source_parser/download_queue_controller.dart#_defaultFolderOpener: 路径不存在：$path',
+      );
+    }
+
+    final absolutePath = _absolutePathForReveal(path, entityType);
+
+    if (Platform.isMacOS) {
+      if (await tryRevealPathWithNsWorkspace(absolutePath)) {
+        return;
+      }
+
+      const openBin = '/usr/bin/open';
+      if (entityType == FileSystemEntityType.file) {
+        var result = await Process.run(openBin, ['-R', absolutePath]);
+        if (result.exitCode != 0) {
+          debugPrint(
+            'lib/source_parser/download_queue_controller.dart#_defaultFolderOpener: '
+            'macOS open -R failed exit=${result.exitCode} stderr=${result.stderr}，改打开所在文件夹',
+          );
+          final parent = File(absolutePath).parent.path;
+          result = await Process.run(openBin, [parent]);
+        }
+        if (result.exitCode != 0) {
+          throw DownloadException(
+            'lib/source_parser/download_queue_controller.dart#_defaultFolderOpener: macOS open 失败: ${result.stderr}',
+          );
+        }
+        return;
+      }
+
+      final result = await Process.run(openBin, [absolutePath]);
+      if (result.exitCode != 0) {
+        throw DownloadException(
+          'lib/source_parser/download_queue_controller.dart#_defaultFolderOpener: macOS open 失败: ${result.stderr}',
+        );
+      }
+      return;
+    }
+
+    if (Platform.isWindows) {
+      final winPath = absolutePath.replaceAll('/', r'\');
+      if (entityType == FileSystemEntityType.file) {
+        final selectArg = '/select,"$winPath"';
+        final result = await Process.run(
+          r'C:\Windows\explorer.exe',
+          [selectArg],
+        );
+        if (!_windowsExplorerExitLooksSuccessful(result.exitCode)) {
+          throw DownloadException(
+            'lib/source_parser/download_queue_controller.dart#_defaultFolderOpener: Windows explorer 失败: ${result.stderr}',
+          );
+        }
+        return;
+      }
+
+      final result = await Process.run(
+        r'C:\Windows\explorer.exe',
+        [winPath],
+      );
+      if (!_windowsExplorerExitLooksSuccessful(result.exitCode)) {
+        throw DownloadException(
+          'lib/source_parser/download_queue_controller.dart#_defaultFolderOpener: Windows explorer 失败: ${result.stderr}',
+        );
+      }
+      return;
+    }
+
+    final targetPath = entityType == FileSystemEntityType.file
+        ? File(absolutePath).parent.path
+        : absolutePath;
+    final result = await Process.run('xdg-open', [targetPath]);
     if (result.exitCode != 0) {
       throw DownloadException(
-        'lib/source_parser/download_queue_controller.dart#_defaultFolderOpener: ${result.stderr}',
+        'lib/source_parser/download_queue_controller.dart#_defaultFolderOpener: Linux xdg-open 失败: ${result.stderr}',
       );
     }
   }
 
-  static _OpenFolderCommand _openFolderCommand(String path) {
-    if (Platform.isMacOS) {
-      return _OpenFolderCommand('open', [path]);
+  /// `explorer.exe` 在「成功启动 Finder 窗口」时仍常返回 `1`，不能仅凭非 0 判定失败。
+  static bool _windowsExplorerExitLooksSuccessful(int exitCode) {
+    return exitCode == 0 || exitCode == 1;
+  }
+
+  static String _absolutePathForReveal(String path, FileSystemEntityType type) {
+    try {
+      return type == FileSystemEntityType.file
+          ? File(path).resolveSymbolicLinksSync()
+          : Directory(path).resolveSymbolicLinksSync();
+    } on FileSystemException {
+      return type == FileSystemEntityType.file
+          ? File(path).absolute.path
+          : Directory(path).absolute.path;
+    }
+  }
+
+  static Future<ProcessResult> _defaultProcessRunner(
+    String executable,
+    List<String> arguments,
+  ) async {
+    ProcessException? lastNotFoundError;
+    for (final candidate in _processExecutableCandidates(executable)) {
+      try {
+        return await Process.run(candidate, arguments);
+      } on ProcessException catch (error) {
+        if (!_isExecutableNotFound(error)) {
+          rethrow;
+        }
+        lastNotFoundError = error;
+      }
     }
 
-    if (Platform.isWindows) {
-      return _OpenFolderCommand('explorer', [path]);
+    throw lastNotFoundError ??
+        ProcessException(executable, arguments, 'No such file or directory');
+  }
+
+  static Future<Process> _defaultProcessStarter(
+    String executable,
+    List<String> arguments,
+  ) async {
+    ProcessException? lastNotFoundError;
+    for (final candidate in _processExecutableCandidates(executable)) {
+      try {
+        return await Process.start(candidate, arguments);
+      } on ProcessException catch (error) {
+        if (!_isExecutableNotFound(error)) {
+          rethrow;
+        }
+        lastNotFoundError = error;
+      }
     }
 
-    return _OpenFolderCommand('xdg-open', [path]);
+    throw lastNotFoundError ??
+        ProcessException(executable, arguments, 'No such file or directory');
+  }
+
+  static bool _isExecutableNotFound(ProcessException error) {
+    final message = error.message.toLowerCase();
+    return message.contains('no such file or directory') ||
+        message.contains('cannot find the file') ||
+        message.contains('not found');
+  }
+
+  static List<String> _processExecutableCandidates(String executable) {
+    if (executable.contains('/') || executable.contains(r'\')) {
+      return [executable];
+    }
+
+    final home = Platform.environment['HOME'];
+    final names = Platform.isWindows
+        ? {executable, '$executable.exe'}
+        : {executable};
+    final directories = <String>[
+      if (Platform.isMacOS) ...['/opt/homebrew/bin', '/usr/local/bin'],
+      if (!Platform.isWindows) '/usr/bin',
+      if (home != null && home.trim().isNotEmpty) '$home/.local/bin',
+    ];
+
+    return <String>[
+      executable,
+      for (final directory in directories)
+        for (final name in names) '$directory/$name',
+    ];
   }
 
   static Future<File> _uniqueFile(Directory directory, String fileName) async {
@@ -308,13 +862,6 @@ class _FileNameParts {
 
   final String name;
   final String extension;
-}
-
-class _OpenFolderCommand {
-  const _OpenFolderCommand(this.executable, this.arguments);
-
-  final String executable;
-  final List<String> arguments;
 }
 
 class DownloadException implements Exception {
