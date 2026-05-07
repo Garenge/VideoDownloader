@@ -636,7 +636,17 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
     _urlController.text = url;
   }
 
-  void _handleDownload(SourceResource resource) {
+  Future<void> _handleDownload(SourceResource resource) async {
+    if (resource.requiresFfmpegPostProcess) {
+      final confirmed = await _showDownloadPreparationPrompt(resource);
+      if (confirmed != true || !mounted) {
+        return;
+      }
+    }
+    _enqueueDownload(resource);
+  }
+
+  void _enqueueDownload(SourceResource resource) {
     final task = _downloadQueueController!.enqueue(resource);
     setState(() {
       _downloadPanelOpen = true;
@@ -644,6 +654,42 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text('已加入下载队列：${task.fileName}')));
+  }
+
+  Future<bool?> _showDownloadPreparationPrompt(SourceResource resource) {
+    final ffmpegReady =
+        _downloadToolStatus.ffmpegAvailable &&
+        !_downloadToolStatus.externalCommandBlocked;
+    final lines = <String>[
+      if (resource.likelyHlsManifest) '这是一个 HLS 播放列表资源，下载后通常还需要整理封装。',
+      if (resource.isDashManifest) '这是一个 DASH 清单资源，下载后通常还需要额外处理。',
+      if (ffmpegReady)
+        '当前已检测到 ffmpeg，后续可在历史记录里继续转 MP4。'
+      else if (_downloadToolStatus.externalCommandBlocked)
+        '当前环境禁止执行 ffmpeg，下载后暂时无法在应用内转 MP4。'
+      else
+        '当前未检测到 ffmpeg，下载后若要转 MP4，需要先安装 ffmpeg。',
+    ];
+
+    return showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('下载前提示'),
+          content: Text(lines.join('\n')),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('继续下载'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void _toggleDownloadPanel() {

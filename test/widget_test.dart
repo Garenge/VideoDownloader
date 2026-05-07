@@ -124,6 +124,34 @@ void main() {
     expect(find.text('最近解析'), findsNothing);
     expect(await historyStore.load(), isEmpty);
   });
+
+  testWidgets('warns before downloading hls playlist resources', (
+    tester,
+  ) async {
+    await _pumpParsedHomePage(
+      tester,
+      htmlFixture: '''
+<!doctype html>
+<html>
+  <body>
+    <video>
+      <source src="https://media.example.com/stream.m3u8" type="application/vnd.apple.mpegurl">
+    </video>
+  </body>
+</html>
+''',
+    );
+
+    final downloadButton = find.byTooltip('下载').first;
+    await tester.ensureVisible(downloadButton);
+    await tester.tap(downloadButton);
+    await tester.pumpAndSettle();
+
+    expect(find.text('下载前提示'), findsOneWidget);
+    expect(find.textContaining('HLS 播放列表资源'), findsOneWidget);
+    expect(find.textContaining('当前未检测到 ffmpeg'), findsOneWidget);
+    expect(find.text('继续下载'), findsOneWidget);
+  });
 }
 
 final _minimalPngBytes = base64Decode(
@@ -172,6 +200,7 @@ Finder get _resourceSearchField {
 Future<void> _pumpParsedHomePage(
   WidgetTester tester, {
   ParseHistoryStore? parseHistoryStore,
+  String htmlFixture = _htmlFixture,
 }) async {
   final parserService = SourceParserService(
     client: MockClient((request) async {
@@ -183,7 +212,7 @@ Future<void> _pumpParsedHomePage(
         );
       }
 
-      return http.Response(_htmlFixture, 200, request: request);
+      return http.Response(htmlFixture, 200, request: request);
     }),
   );
 
