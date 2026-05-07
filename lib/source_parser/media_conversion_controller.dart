@@ -37,6 +37,7 @@ class MediaConversionTask {
   double progress = 0;
   String? outputFilePath;
   String? errorMessage;
+  String? failureSummary;
   String? statusDetail;
   DateTime? activeStartedAt;
   final List<String> _logs = [];
@@ -123,6 +124,7 @@ class MediaConversionController extends ChangeNotifier {
     task.progress = 0;
     task.outputFilePath = null;
     task.errorMessage = null;
+    task.failureSummary = null;
     task.statusDetail = null;
     task.activeStartedAt = null;
     task.outputFileName = _outputFileNameFor(task.inputRecord.fileName);
@@ -170,6 +172,7 @@ class MediaConversionController extends ChangeNotifier {
       );
       task.status = MediaConversionStatus.converting;
       task.errorMessage = null;
+      task.failureSummary = null;
       task.statusDetail = '准备启动 ffmpeg…';
       task.activeStartedAt = DateTime.now();
       _startConversionElapsedTicker();
@@ -208,7 +211,7 @@ class MediaConversionController extends ChangeNotifier {
       }
       if (exitCode != 0) {
         throw DownloadException(
-          task.errorMessage ??
+          _buildReadableFfmpegFailureFromTask(task) ??
               'ffmpeg 执行失败(exit=$exitCode)，请查看转换日志定位原因',
         );
       }
@@ -233,6 +236,7 @@ class MediaConversionController extends ChangeNotifier {
       _cancelRequestedTaskIds.remove(task.id);
       task.status = MediaConversionStatus.canceled;
       task.errorMessage = null;
+      task.failureSummary = null;
       task.statusDetail = null;
       task.activeStartedAt = null;
       task.addLog(
@@ -296,6 +300,7 @@ class MediaConversionController extends ChangeNotifier {
     Process process,
   ) async {
     int? totalDurationUs;
+    final stderrLines = <String>[];
 
     Future<void> drainStdout() async {
       final lines = utf8.decoder
@@ -315,6 +320,11 @@ class MediaConversionController extends ChangeNotifier {
 
         final key = line.substring(0, splitIndex).trim();
         final value = line.substring(splitIndex + 1).trim();
+        if (key == 'progress') {
+          task.addLog(
+            'lib/source_parser/media_conversion_controller.dart#_trackFfmpegProgress: progress=$value',
+          );
+        }
         if (key == 'out_time_us') {
           final currentUs = int.tryParse(value);
           if (currentUs != null && currentUs > 0) {
@@ -345,6 +355,17 @@ class MediaConversionController extends ChangeNotifier {
           throw const _MediaConversionCanceledException();
         }
 
+        final trimmed = line.trim();
+        if (trimmed.isNotEmpty) {
+          stderrLines.add(trimmed);
+          if (stderrLines.length > 60) {
+            stderrLines.removeAt(0);
+          }
+          task.addLog(
+            'lib/source_parser/media_conversion_controller.dart#_trackFfmpegProgress: ffmpeg: $trimmed',
+          );
+        }
+
         final durationMatch = RegExp(
           r'Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)',
         ).firstMatch(line);
@@ -359,12 +380,16 @@ class MediaConversionController extends ChangeNotifier {
 
         final lowered = line.toLowerCase();
         if (lowered.contains('error') || lowered.contains('failed')) {
-          task.errorMessage = line.trim();
+          task.failureSummary = trimmed;
+          task.errorMessage = _buildReadableFfmpegFailure(stderrLines);
         }
       }
     }
 
     await Future.wait([drainStdout(), drainStderr()]);
+    if (task.failureSummary == null && stderrLines.isNotEmpty) {
+      task.failureSummary = _pickLastMeaningfulStderrLine(stderrLines);
+    }
   }
 
   void _startConversionElapsedTicker() {
@@ -390,6 +415,48 @@ class MediaConversionController extends ChangeNotifier {
       return error.message;
     }
     return 'lib/source_parser/media_conversion_controller.dart#_convert: $error';
+  }
+
+  static String? _buildReadableFfmpegFailureFromTask(MediaConversionTask task) {
+    final summary = task.failureSummary?.trim();
+    if (summary == null || summary.isEmpty) {
+      return task.errorMessage;
+    }
+    return 'ffmpeg 转换失败：$summary';
+  }
+
+  static String _buildReadableFfmpegFailure(List<String> stderrLines) {
+    final summary = _pickLastMeaningfulStderrLine(stderrLines);
+    if (summary == null || summary.isEmpty) {
+      return 'ffmpeg 转换失败，请复制转换日志查看详细原因';
+    }
+    return 'ffmpeg 转换失败：$summary';
+  }
+
+  static String? _pickLastMeaningfulStderrLine(List<String> lines) {
+    for (final line in lines.reversed) {
+      final trimmed = line.trim();
+      if (trimmed.isEmpty) {
+        continue;
+      }
+      final lowered = trimmed.toLowerCase();
+      final isBoilerplate =
+          lowered.startsWith('ffmpeg version') ||
+          lowered.startsWith('configuration:') ||
+          lowered.startsWith('libav') ||
+          lowered.startsWith('built with') ||
+          lowered.startsWith('duration:') ||
+          lowered.startsWith('stream #') ||
+          lowered.startsWith('input #') ||
+          lowered.startsWith('output #') ||
+          lowered.startsWith('metadata:') ||
+          lowered.startsWith('encoder ') ||
+          lowered.startsWith('press [q]');
+      if (!isBoilerplate) {
+        return trimmed;
+      }
+    }
+    return null;
   }
 
   static String _outputFileNameFor(String inputFileName) {

@@ -799,6 +799,36 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
     ).showSnackBar(const SnackBar(content: Text('下载日志已复制，可直接粘贴给我')));
   }
 
+  Future<void> _handleCopyConversionLogs(MediaConversionTask task) async {
+    final logs = task.logText.trim();
+    if (logs.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('当前转换任务暂无可复制日志')));
+      return;
+    }
+
+    final text = [
+      '[Conversion Debug Log]',
+      'taskId=${task.id}',
+      'status=${task.status.name}',
+      'input=${task.inputRecord.filePath}',
+      'output=${task.outputFilePath ?? task.outputFileName}',
+      if (task.failureSummary != null) 'summary=${task.failureSummary}',
+      if (task.errorMessage != null) 'error=${task.errorMessage}',
+      '---',
+      logs,
+    ].join('\n');
+
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('转换日志已复制，可直接粘贴给我')));
+  }
+
   void _selectHost(String? host) {
     setState(() {
       _selectedHost = host;
@@ -893,6 +923,7 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
                       onCancel: _mediaConversionController!.cancel,
                       onRetry: _mediaConversionController!.retry,
                       onOpenFolder: _handleOpenConvertedFolder,
+                      onCopyLogs: _handleCopyConversionLogs,
                     ),
                     historyPanel: DownloadHistoryPanel(
                       records: controller.history,

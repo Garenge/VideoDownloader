@@ -89,6 +89,39 @@ void main() {
     expect(task.outputFilePath, isNotNull);
     expect(await File(task.outputFilePath!).readAsString(), 'converted mp4');
   });
+
+  test('captures readable ffmpeg failure summary and logs', () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'videodownloader_conversion_failure_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+
+    final inputFile = File('${tempDirectory.path}/broken.m3u8');
+    await inputFile.writeAsString('#EXTM3U\n');
+
+    final controller = MediaConversionController(
+      historyRecorder: (_) async {},
+      processStarter: (executable, arguments) async {
+        return _startFailedProcess();
+      },
+    );
+    addTearDown(controller.dispose);
+
+    final task = controller.enqueueM3u8ToMp4(
+      DownloadHistoryRecord(
+        fileName: 'broken.m3u8',
+        filePath: inputFile.path,
+        sourceUrl: 'https://example.com/broken.m3u8',
+        completedAt: DateTime(2026, 5, 6, 10, 0),
+      ),
+    );
+
+    await _waitForStatus(task, MediaConversionStatus.failed);
+
+    expect(task.failureSummary, 'Invalid data found when processing input');
+    expect(task.errorMessage, contains('ffmpeg 转换失败'));
+    expect(task.logText, contains('Invalid data found when processing input'));
+  });
 }
 
 Future<void> _waitForStatus(
@@ -134,5 +167,29 @@ Future<Process> _startProgressProcess(File output) {
       "echo 'progress=end'",
       "printf 'converted mp4' > '$escapedPath'",
     ].join('; '),
+  ]);
+}
+
+Future<Process> _startFailedProcess() {
+  if (Platform.isWindows) {
+    return Process.start('cmd', [
+      '/c',
+      [
+        'echo ffmpeg version n6.1 1^>^&2',
+        'echo Input #0, hls, from "broken.m3u8": 1^>^&2',
+        'echo Invalid data found when processing input 1^>^&2',
+        'exit 1',
+      ].join(' & '),
+    ]);
+  }
+
+  return Process.start('sh', [
+    '-c',
+      [
+        "echo 'ffmpeg version n6.1' 1>&2",
+        'echo \'Input #0, hls, from "broken.m3u8":\' 1>&2',
+        "echo 'Invalid data found when processing input' 1>&2",
+        'exit 1',
+      ].join('; '),
   ]);
 }

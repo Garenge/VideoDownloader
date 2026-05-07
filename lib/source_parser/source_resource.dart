@@ -76,6 +76,39 @@ class SourceResource {
     return extension;
   }
 
+  bool get isM3u8Playlist => fileExtension == 'm3u8';
+
+  bool get isDashManifest => fileExtension == 'mpd';
+
+  bool get likelyHlsManifest {
+    final hint = sizeHint.toLowerCase();
+    final loweredUrl = url.toLowerCase();
+    return isM3u8Playlist ||
+        hint.contains('mpegurl') ||
+        hint.contains('application/x-mpegurl') ||
+        hint.contains('application/vnd.apple.mpegurl') ||
+        loweredUrl.contains('.m3u8');
+  }
+
+  bool get requiresFfmpegPostProcess => likelyHlsManifest || isDashManifest;
+
+  List<String> get workflowHints {
+    final hints = <String>[];
+    if (likelyHlsManifest) {
+      hints.add('HLS 播放列表');
+    }
+    if (isDashManifest) {
+      hints.add('DASH 清单');
+    }
+    if (requiresFfmpegPostProcess) {
+      hints.add('需要 ffmpeg');
+    }
+    if (likelyHlsManifest) {
+      hints.add('推荐导出 MP4');
+    }
+    return hints;
+  }
+
   String get searchableText {
     return '$title $url $host $sizeHint $fileExtension'.toLowerCase();
   }

@@ -9,12 +9,14 @@ class MediaConversionPanel extends StatelessWidget {
     required this.onCancel,
     required this.onRetry,
     required this.onOpenFolder,
+    required this.onCopyLogs,
   });
 
   final List<MediaConversionTask> tasks;
   final ValueChanged<MediaConversionTask> onCancel;
   final ValueChanged<MediaConversionTask> onRetry;
   final ValueChanged<MediaConversionTask> onOpenFolder;
+  final ValueChanged<MediaConversionTask> onCopyLogs;
 
   @override
   Widget build(BuildContext context) {
@@ -54,6 +56,7 @@ class MediaConversionPanel extends StatelessWidget {
                   onCancel: () => onCancel(task),
                   onRetry: () => onRetry(task),
                   onOpenFolder: () => onOpenFolder(task),
+                  onCopyLogs: () => onCopyLogs(task),
                 ),
                 if (task != tasks.last) const Divider(height: 14),
               ],
@@ -70,12 +73,14 @@ class _MediaConversionTaskTile extends StatelessWidget {
     required this.onCancel,
     required this.onRetry,
     required this.onOpenFolder,
+    required this.onCopyLogs,
   });
 
   final MediaConversionTask task;
   final VoidCallback onCancel;
   final VoidCallback onRetry;
   final VoidCallback onOpenFolder;
+  final VoidCallback onCopyLogs;
 
   @override
   Widget build(BuildContext context) {
@@ -83,6 +88,7 @@ class _MediaConversionTaskTile extends StatelessWidget {
         task.status == MediaConversionStatus.pending ||
         task.status == MediaConversionStatus.converting;
     final canRetry = task.status == MediaConversionStatus.failed;
+    final canCopyLogs = task.logs.isNotEmpty;
     final canOpenFolder =
         task.status == MediaConversionStatus.completed &&
         task.outputFilePath != null;
@@ -107,6 +113,14 @@ class _MediaConversionTaskTile extends StatelessWidget {
             onPressed: onRetry,
             tooltip: '重试',
             icon: const Icon(Icons.refresh),
+          ),
+        ],
+        if (canCopyLogs) ...[
+          const SizedBox(width: 8),
+          IconButton(
+            onPressed: onCopyLogs,
+            tooltip: '复制日志',
+            icon: const Icon(Icons.copy_all),
           ),
         ],
         if (canCancel) ...[
@@ -175,7 +189,7 @@ class _MediaConversionTaskTile extends StatelessWidget {
   }
 
   String get _taskDetail {
-    final error = task.errorMessage;
+    final error = task.errorMessage ?? task.failureSummary;
     if (error != null) {
       return error;
     }
