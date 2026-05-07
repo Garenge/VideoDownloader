@@ -17,10 +17,13 @@ image, and other downloadable files, then show them by category for download.
 - Users can choose a custom download directory and reset to the default app
   documents directory.
 - Completed download tasks can open their containing folder from the queue.
+- Download history entries can trigger `m3u8 -> mp4` conversion, with a
+  dedicated conversion task queue in the activity panel.
 - Parsed resources support thumbnail preview, search, host filtering, and file
   extension filtering.
 - Recently parsed URLs are stored locally and can be reused or cleared.
 - Completed downloads are stored locally in download history and can be cleared.
+- Converted MP4 outputs are written back into download history after success.
 - YouTube public oEmbed metadata is used to extract video title, author, and
   thumbnail cover when available.
 - YouTube parser also creates a downloadable "YouTube video" task when a valid
@@ -118,21 +121,64 @@ Acceptance:
 - Store recently parsed URLs locally. Done.
 - Store completed download history. Done.
 - Allow clearing history from the app. Done.
+- Allow history items to launch media conversion tasks. Done for `m3u8 -> mp4`.
 
 Acceptance:
 
 - Relaunching the app keeps recent parse history. Done.
 - Relaunching the app keeps completed download history. Done.
 - Users can remove stored history intentionally. Done.
+- Successful `m3u8 -> mp4` conversion results appear in the same history list.
+
+### 7. Media Conversion
+
+- Keep conversion as an explicit task model instead of doing heavy work inline
+  in a history cell. Done for Phase 1.
+- Support `m3u8 -> mp4` from download history. Done.
+- Reuse runtime `ffmpeg` capability checks and external-command error feedback.
+  Done.
+- Show conversion states: pending, converting, completed, failed, canceled.
+  Done.
+- Add retry and open-folder actions for completed/failed conversion tasks.
+  Done.
+
+Acceptance:
+
+- History only exposes `转 MP4` when the local file is an `m3u8` playlist. Done.
+- Starting a conversion does not block the history list. Done.
+- Conversion work is visible from the same floating activity entry as downloads.
+  Done.
+- Completed MP4 files can be found again from download history. Done.
 
 ## Suggested Next Step
 
-Start with **Common Web Page Parser** before platform-specific parsers. It has
-the best risk-to-value ratio because it proves the full pipeline: fetch page,
-extract resources, normalize URLs, deduplicate results, and render them through
-the existing UI.
+With download and conversion task basics connected, the next highest-value work
+is to improve **resource understanding and post-download ergonomics** rather
+than opening more platform integrations immediately.
 
-The first implementation slice is now in progress:
+Recommended order:
+
+1. **Upgrade HLS resource metadata before download**
+   - Detect likely master/media playlists more accurately.
+   - Distinguish direct MP4 from playlist-based streams in UI.
+   - Add lightweight hints such as "HLS playlist", "needs ffmpeg", or
+     "recommended output: MP4".
+2. **Add conversion/task detail polish**
+   - Copy conversion logs for failure diagnosis.
+   - Show more specific ffmpeg stderr summaries.
+   - Optionally support "open output file" in addition to "open folder".
+3. **Broaden parser coverage**
+   - Expand JSON-LD / manifest / source extraction.
+   - Improve platform parsers only after generic web and HLS cases feel solid.
+
+Why this order:
+
+- Users will feel the benefit immediately on real `m3u8` pages.
+- It reduces confusion around which resources need conversion.
+- It strengthens the full parse -> download -> convert loop before adding more
+  site-specific complexity.
+
+The original parser slice remains relevant and is still in progress:
 
 1. Add a real parser path in `SourceParserService`. Done.
 2. Fetch the input URL. Done.

@@ -9,16 +9,18 @@ class DownloadActivityOverlay extends StatelessWidget {
     required this.panelOpen,
     required this.onTogglePanel,
     required this.onClosePanel,
-    required this.activeDownloadCount,
+    required this.activeTaskCount,
     required this.queuePanel,
+    required this.conversionPanel,
     required this.historyPanel,
   });
 
   final bool panelOpen;
   final VoidCallback onTogglePanel;
   final VoidCallback onClosePanel;
-  final int activeDownloadCount;
+  final int activeTaskCount;
   final Widget queuePanel;
+  final Widget conversionPanel;
   final Widget historyPanel;
 
   @override
@@ -26,7 +28,7 @@ class DownloadActivityOverlay extends StatelessWidget {
     final bottomSafe = MediaQuery.paddingOf(context).bottom;
     final maxW = math.min(400.0, MediaQuery.sizeOf(context).width - 32);
     final maxH = math.min(480.0, MediaQuery.sizeOf(context).height * 0.58);
-    final badgeVisible = activeDownloadCount > 0;
+    final badgeVisible = activeTaskCount > 0;
 
     return Stack(
       clipBehavior: Clip.none,
@@ -61,6 +63,7 @@ class DownloadActivityOverlay extends StatelessWidget {
                             height: maxH,
                             onClose: onClosePanel,
                             queuePanel: queuePanel,
+                            conversionPanel: conversionPanel,
                             historyPanel: historyPanel,
                           ),
                           const SizedBox(height: 12),
@@ -70,7 +73,7 @@ class DownloadActivityOverlay extends StatelessWidget {
               ),
               Badge(
                 isLabelVisible: badgeVisible,
-                label: Text('$activeDownloadCount'),
+                label: Text('$activeTaskCount'),
                 offset: const Offset(10, -6),
                 child: FloatingActionButton(
                   key: const ValueKey('download-activity-fab'),
@@ -93,6 +96,7 @@ class _DownloadPanelCard extends StatelessWidget {
     required this.height,
     required this.onClose,
     required this.queuePanel,
+    required this.conversionPanel,
     required this.historyPanel,
   });
 
@@ -100,6 +104,7 @@ class _DownloadPanelCard extends StatelessWidget {
   final double height;
   final VoidCallback onClose;
   final Widget queuePanel;
+  final Widget conversionPanel;
   final Widget historyPanel;
 
   @override
@@ -116,7 +121,7 @@ class _DownloadPanelCard extends StatelessWidget {
         width: width,
         height: height,
         child: DefaultTabController(
-          length: 2,
+          length: 3,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -154,6 +159,7 @@ class _DownloadPanelCard extends StatelessWidget {
                 unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
                 tabs: const [
                   Tab(text: '队列'),
+                  Tab(text: '转换'),
                   Tab(text: '历史'),
                 ],
               ),
@@ -161,6 +167,7 @@ class _DownloadPanelCard extends StatelessWidget {
                 child: TabBarView(
                   children: [
                     _ScrollableTabBody(child: queuePanel),
+                    _ScrollableTabBody(child: conversionPanel),
                     _ScrollableTabBody(child: historyPanel),
                   ],
                 ),

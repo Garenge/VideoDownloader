@@ -215,11 +215,13 @@ class DownloadHistoryPanel extends StatelessWidget {
     super.key,
     required this.records,
     required this.onOpenFolder,
+    required this.onConvertToMp4,
     required this.onClear,
   });
 
   final List<DownloadHistoryRecord> records;
   final ValueChanged<DownloadHistoryRecord> onOpenFolder;
+  final ValueChanged<DownloadHistoryRecord> onConvertToMp4;
   final VoidCallback onClear;
 
   @override
@@ -255,6 +257,9 @@ class DownloadHistoryPanel extends StatelessWidget {
               _DownloadHistoryTile(
                 record: record,
                 onOpenFolder: () => onOpenFolder(record),
+                onConvertToMp4: record.isM3u8
+                    ? () => onConvertToMp4(record)
+                    : null,
               ),
               if (record != records.last) const Divider(height: 14),
             ],
@@ -269,10 +274,12 @@ class _DownloadHistoryTile extends StatelessWidget {
   const _DownloadHistoryTile({
     required this.record,
     required this.onOpenFolder,
+    this.onConvertToMp4,
   });
 
   final DownloadHistoryRecord record;
   final VoidCallback onOpenFolder;
+  final VoidCallback? onConvertToMp4;
 
   @override
   Widget build(BuildContext context) {
@@ -283,6 +290,13 @@ class _DownloadHistoryTile extends StatelessWidget {
         const SizedBox(width: 12),
         Expanded(child: _buildRecordContent(context)),
         const SizedBox(width: 8),
+        if (onConvertToMp4 != null)
+          IconButton(
+            onPressed: onConvertToMp4,
+            tooltip: '转 MP4',
+            icon: const Icon(Icons.movie_creation_outlined),
+          ),
+        if (onConvertToMp4 != null) const SizedBox(width: 4),
         IconButton(
           onPressed: onOpenFolder,
           tooltip: '打开所在文件夹',

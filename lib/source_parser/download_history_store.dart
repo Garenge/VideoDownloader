@@ -18,6 +18,17 @@ class DownloadHistoryRecord {
   final String sourceUrl;
   final DateTime completedAt;
 
+  String get fileExtension {
+    final path = filePath.toLowerCase();
+    final dotIndex = path.lastIndexOf('.');
+    if (dotIndex < 0 || dotIndex == path.length - 1) {
+      return '';
+    }
+    return path.substring(dotIndex + 1);
+  }
+
+  bool get isM3u8 => fileExtension == 'm3u8';
+
   Map<String, Object?> toJson() {
     return {
       'fileName': fileName,

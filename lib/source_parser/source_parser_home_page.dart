@@ -14,6 +14,8 @@ import 'download_settings_sheet.dart';
 import 'download_settings_store.dart';
 import 'download_queue_controller.dart';
 import 'download_queue_panel.dart';
+import 'media_conversion_controller.dart';
+import 'media_conversion_panel.dart';
 import 'parse_history_store.dart';
 import 'proxied_http_client_factory.dart';
 import 'proxy_settings_sheet.dart';
@@ -145,6 +147,8 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
   late final TabController _resourceTypeTabController;
   SourceParserService? _parserService;
   DownloadQueueController? _downloadQueueController;
+  MediaConversionController? _mediaConversionController;
+  late final DownloadHistoryStore _downloadHistoryStore;
   late final ParseHistoryStore _parseHistoryStore;
   ProxySettingsStore? _proxySettingsStore;
   late final DownloadSettingsStore _downloadSettingsStore;
@@ -171,6 +175,7 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
     super.initState();
     _resourceTypeTabController = TabController(length: 4, vsync: this);
     _parseHistoryStore = widget.parseHistoryStore ?? ParseHistoryStore();
+    _downloadHistoryStore = widget.downloadHistoryStore ?? DownloadHistoryStore();
     _resourceSearchController.addListener(_handleResourceSearchChanged);
     _downloadSettingsStore = DownloadSettingsStore();
     unawaited(_loadDownloadSettings());
@@ -179,8 +184,11 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
     if (widget.parserService != null) {
       _parserService = widget.parserService;
       _downloadQueueController = DownloadQueueController(
-        downloadHistoryStore: widget.downloadHistoryStore,
+        downloadHistoryStore: _downloadHistoryStore,
         downloadSettings: _downloadSettings,
+      );
+      _mediaConversionController = MediaConversionController(
+        historyRecorder: _recordHistoryEntry,
       );
       _savedProxySpec = null;
       _networkReady = true;
@@ -210,8 +218,11 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
       _downloadQueueController = DownloadQueueController(
         client: downloadClient,
         ownClient: true,
-        downloadHistoryStore: widget.downloadHistoryStore,
+        downloadHistoryStore: _downloadHistoryStore,
         downloadSettings: _downloadSettings,
+      );
+      _mediaConversionController = MediaConversionController(
+        historyRecorder: _recordHistoryEntry,
       );
       _savedProxySpec = spec;
       _networkReady = true;
@@ -420,6 +431,7 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
       _parserService?.dispose();
     }
     _downloadQueueController?.dispose();
+    _mediaConversionController?.dispose();
     _resourceTypeTabController.dispose();
     super.dispose();
   }
@@ -646,15 +658,22 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
     });
   }
 
-  int _activeDownloadBadgeCount() {
-    final tasks = _downloadQueueController!.tasks;
-    return tasks
+  int _activeActivityBadgeCount() {
+    final downloadCount = _downloadQueueController!.tasks
         .where(
           (task) =>
               task.status == DownloadStatus.pending ||
               task.status == DownloadStatus.downloading,
         )
         .length;
+    final conversionCount = _mediaConversionController!.tasks
+        .where(
+          (task) =>
+              task.status == MediaConversionStatus.pending ||
+              task.status == MediaConversionStatus.converting,
+        )
+        .length;
+    return downloadCount + conversionCount;
   }
 
   Future<void> _handleSelectDownloadDirectory() async {
@@ -668,6 +687,10 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
 
   void _handleResetDownloadDirectory() {
     _downloadQueueController!.resetDownloadDirectory();
+  }
+
+  Future<void> _recordHistoryEntry(DownloadHistoryRecord record) async {
+    await _downloadQueueController!.addHistoryRecord(record);
   }
 
   Future<void> _handleOpenDownloadedFolder(DownloadTask task) async {
@@ -695,6 +718,55 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('打开历史文件夹失败：$error')));
+    }
+  }
+
+  void _handleConvertHistoryToMp4(DownloadHistoryRecord record) {
+    if (_downloadToolStatus.externalCommandBlocked) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('当前环境禁止执行 ffmpeg，暂时无法转 MP4')),
+      );
+      return;
+    }
+    if (!_downloadToolStatus.ffmpegAvailable) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('未检测到 ffmpeg，无法转 MP4')));
+      return;
+    }
+
+    final task = _mediaConversionController!.enqueueM3u8ToMp4(record);
+    setState(() {
+      _downloadPanelOpen = true;
+    });
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('已加入转换队列：${task.outputFileName}')));
+  }
+
+  Future<void> _handleOpenConvertedFolder(MediaConversionTask task) async {
+    final outputFilePath = task.outputFilePath;
+    if (outputFilePath == null) {
+      return;
+    }
+
+    try {
+      await _downloadQueueController!.openHistoryFolder(
+        DownloadHistoryRecord(
+          fileName: task.outputFileName,
+          filePath: outputFilePath,
+          sourceUrl: task.inputRecord.sourceUrl,
+          completedAt: DateTime.now(),
+        ),
+      );
+    } on Object catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('打开转换结果失败：$error')));
     }
   }
 
@@ -798,14 +870,17 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
                 },
               ),
               AnimatedBuilder(
-                animation: _downloadQueueController!,
+                animation: Listenable.merge([
+                  _downloadQueueController!,
+                  _mediaConversionController!,
+                ]),
                 builder: (context, _) {
                   final controller = _downloadQueueController!;
                   return DownloadActivityOverlay(
                     panelOpen: _downloadPanelOpen,
                     onTogglePanel: _toggleDownloadPanel,
                     onClosePanel: _closeDownloadPanel,
-                    activeDownloadCount: _activeDownloadBadgeCount(),
+                    activeTaskCount: _activeActivityBadgeCount(),
                     queuePanel: DownloadQueuePanel(
                       tasks: controller.tasks,
                       onCancel: controller.cancel,
@@ -813,9 +888,16 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
                       onOpenFolder: _handleOpenDownloadedFolder,
                       onCopyLogs: _handleCopyTaskLogs,
                     ),
+                    conversionPanel: MediaConversionPanel(
+                      tasks: _mediaConversionController!.tasks,
+                      onCancel: _mediaConversionController!.cancel,
+                      onRetry: _mediaConversionController!.retry,
+                      onOpenFolder: _handleOpenConvertedFolder,
+                    ),
                     historyPanel: DownloadHistoryPanel(
                       records: controller.history,
                       onOpenFolder: _handleOpenHistoryFolder,
+                      onConvertToMp4: _handleConvertHistoryToMp4,
                       onClear: controller.clearHistory,
                     ),
                   );

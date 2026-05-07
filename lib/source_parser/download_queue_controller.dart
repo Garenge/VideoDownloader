@@ -295,6 +295,14 @@ class DownloadQueueController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> addHistoryRecord(DownloadHistoryRecord record) async {
+    final records = await _downloadHistoryStore.add(record);
+    _history
+      ..clear()
+      ..addAll(records);
+    notifyListeners();
+  }
+
   Future<void> _loadDownloadHistory() async {
     final records = await _downloadHistoryStore.load();
     _history
