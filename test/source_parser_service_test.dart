@@ -15,7 +15,7 @@ void main() {
     final result = await SourceParserService().parse(server.url);
 
     expect(result.platform, SourcePlatform.other);
-    expect(result.resourcesOf(SourceResourceType.image).length, 5);
+    expect(result.resourcesOf(SourceResourceType.image).length, 6);
     expect(result.resourcesOf(SourceResourceType.video).length, 4);
     expect(result.resourcesOf(SourceResourceType.other).length, 1);
   });
@@ -72,6 +72,193 @@ void main() {
     expect(videos.first.youtubeVideoId, 'dQw4w9WgXcQ');
     expect(videos.first.title, 'YouTube 视频：Demo Video');
     expect(videos.first.url, watchUrl);
+  });
+
+  test('extracts player resources from data attributes and inline scripts', () async {
+    final service = SourceParserService(
+      client: MockClient((request) async {
+        return http.Response('''
+<!doctype html>
+<html>
+  <body>
+    <div
+      data-play-url="/media/master.m3u8"
+      data-cover="https://cdn.example.com/poster.jpg"
+    ></div>
+    <script>
+      window.__PLAYER_STATE__ = {
+        dash: "https://media.example.com/live/stream.mpd",
+        fallback: "https://media.example.com/live/video.mp4"
+      };
+    </script>
+  </body>
+</html>
+''', 200, request: request);
+      }),
+    );
+
+    final result = await service.parse('https://example.com/watch/demo');
+    final urls = result.resources.map((item) => item.url).toList();
+
+    expect(urls, contains('https://example.com/media/master.m3u8'));
+    expect(urls, contains('https://cdn.example.com/poster.jpg'));
+    expect(urls, contains('https://media.example.com/live/stream.mpd'));
+    expect(urls, contains('https://media.example.com/live/video.mp4'));
+  });
+
+  test('extracts nested json script media keys from real-world style player state', () async {
+    final service = SourceParserService(
+      client: MockClient((request) async {
+        return http.Response('''
+<!doctype html>
+<html>
+  <body>
+    <script type="application/json" id="player-state">
+      {
+        "player": {
+          "video": {
+            "playAddr": "/api/media/master.m3u8",
+            "dashUrl": "https://cdn.example.com/video/stream.mpd",
+            "coverUrl": "https://cdn.example.com/video/poster.webp"
+          }
+        }
+      }
+    </script>
+    <script>
+      window.__NEXT_DATA__ = {
+        playbackUrl: "https://media.example.com/fallback/video.mp4",
+        posterUrl: "/images/local-poster.jpg"
+      };
+    </script>
+  </body>
+</html>
+''', 200, request: request);
+      }),
+    );
+
+    final result = await service.parse('https://example.com/post/123');
+    final urls = result.resources.map((item) => item.url).toList();
+
+    expect(urls, contains('https://example.com/api/media/master.m3u8'));
+    expect(urls, contains('https://cdn.example.com/video/stream.mpd'));
+    expect(urls, contains('https://cdn.example.com/video/poster.webp'));
+    expect(urls, contains('https://media.example.com/fallback/video.mp4'));
+    expect(urls, contains('https://example.com/images/local-poster.jpg'));
+  });
+
+  test('extracts escaped urls and array-based media entries from scripts', () async {
+    final service = SourceParserService(
+      client: MockClient((request) async {
+        return http.Response('''
+<!doctype html>
+<html>
+  <body>
+    <script type="application/json">
+      {
+        "playlist": {
+          "sources": [
+            "https:\\/\\/cdn.example.com\\/live\\/master.m3u8",
+            "https:\\/\\/cdn.example.com\\/live\\/backup.m3u8"
+          ],
+          "posterUrl": "https:\\/\\/cdn.example.com\\/img\\/cover.png"
+        }
+      }
+    </script>
+    <script>
+      window.__PLAYER__ = {
+        sources: [
+          {play_url: "https:\\/\\/video.example.com\\/vod\\/main.mp4"},
+          {play_url: "\\/vod\\/relative\\/fallback.mp4"}
+        ]
+      };
+    </script>
+  </body>
+</html>
+''', 200, request: request);
+      }),
+    );
+
+    final result = await service.parse('https://example.com/article/abc');
+    final urls = result.resources.map((item) => item.url).toList();
+
+    expect(urls, contains('https://cdn.example.com/live/master.m3u8'));
+    expect(urls, contains('https://cdn.example.com/live/backup.m3u8'));
+    expect(urls, contains('https://cdn.example.com/img/cover.png'));
+    expect(urls, contains('https://video.example.com/vod/main.mp4'));
+    expect(urls, contains('https://example.com/vod/relative/fallback.mp4'));
+  });
+
+  test('extracts generic url and file keys inside player-style arrays', () async {
+    final service = SourceParserService(
+      client: MockClient((request) async {
+        return http.Response('''
+<!doctype html>
+<html>
+  <body>
+    <script type="application/json">
+      {
+        "playInfo": {
+          "sources": [
+            {"url": "https://cdn.example.com/hls/alpha.m3u8"},
+            {"file": "/dash/beta.mpd"},
+            {"src": "https://cdn.example.com/vod/gamma.mp4"}
+          ],
+          "preview": {
+            "url": "https://cdn.example.com/posters/preview.jpg"
+          }
+        }
+      }
+    </script>
+  </body>
+</html>
+''', 200, request: request);
+      }),
+    );
+
+    final result = await service.parse('https://example.com/player/page');
+    final urls = result.resources.map((item) => item.url).toList();
+
+    expect(urls, contains('https://cdn.example.com/hls/alpha.m3u8'));
+    expect(urls, contains('https://example.com/dash/beta.mpd'));
+    expect(urls, contains('https://cdn.example.com/vod/gamma.mp4'));
+    expect(urls, contains('https://cdn.example.com/posters/preview.jpg'));
+  });
+
+  test('extracts media from generalized containers and base-url joins', () async {
+    final service = SourceParserService(
+      client: MockClient((request) async {
+        return http.Response('''
+<!doctype html>
+<html>
+  <body>
+    <script>
+      const baseUrl = "https://media.example.com/assets/";
+      window.playerConfig = {
+        mediaList: [
+          {url: "episode-01/master.m3u8"},
+          {file: "episode-01/stream.mpd"}
+        ],
+        qualities: [
+          {src: "episode-01/video.mp4"}
+        ],
+        representations: [
+          {path: "episode-01/backup.m3u8"}
+        ]
+      };
+    </script>
+  </body>
+</html>
+''', 200, request: request);
+      }),
+    );
+
+    final result = await service.parse('https://example.com/show/42');
+    final urls = result.resources.map((item) => item.url).toList();
+
+    expect(urls, contains('https://media.example.com/assets/episode-01/master.m3u8'));
+    expect(urls, contains('https://media.example.com/assets/episode-01/stream.mpd'));
+    expect(urls, contains('https://media.example.com/assets/episode-01/video.mp4'));
+    expect(urls, contains('https://media.example.com/assets/episode-01/backup.m3u8'));
   });
 }
 
