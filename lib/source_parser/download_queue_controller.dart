@@ -47,8 +47,10 @@ class DownloadTask {
   int? totalBytes;
   String? filePath;
   String? errorMessage;
+
   /// 当前步骤说明（仅下载进行中时使用，结束后清空）。
   String? statusDetail;
+
   /// 本次进入「下载中」状态的时间，用于 UI 展示等待时长。
   DateTime? activeStartedAt;
   final List<String> _logs = [];
@@ -134,6 +136,7 @@ class DownloadQueueController extends ChangeNotifier {
     ProcessRunner? processRunner,
     ProcessStarter? processStarter,
     DownloadSettings? downloadSettings,
+
     /// 为 `true` 时直连下载使用 `dart:io` [HttpClient]，可在连接阶段通过 [cancel] 中断。
     /// 单元测试若使用 [MockClient]，请设为 `false`。
     bool useIoHttpClientForDirectDownloads = true,
@@ -278,7 +281,36 @@ class DownloadQueueController extends ChangeNotifier {
     if (!await File(filePath).exists()) {
       throw DownloadException('下载文件不存在，可能已被移动或删除：$filePath');
     }
-    await _folderOpener(filePath);
+    final directoryPath = _containingDirectoryPathFor(filePath);
+    task.addLog(
+      'lib/source_parser/download_queue_controller.dart#openDownloadedFolder: '
+      'request file=$filePath directory=$directoryPath',
+    );
+    debugPrint(
+      'lib/source_parser/download_queue_controller.dart#openDownloadedFolder: '
+      'request file=$filePath directory=$directoryPath',
+    );
+    try {
+      await _folderOpener(filePath);
+      task.addLog(
+        'lib/source_parser/download_queue_controller.dart#openDownloadedFolder: '
+        'success file=$filePath directory=$directoryPath',
+      );
+      debugPrint(
+        'lib/source_parser/download_queue_controller.dart#openDownloadedFolder: '
+        'success file=$filePath directory=$directoryPath',
+      );
+    } on Object catch (error) {
+      task.addLog(
+        'lib/source_parser/download_queue_controller.dart#openDownloadedFolder: '
+        'failed directory=$directoryPath error=$error',
+      );
+      debugPrint(
+        'lib/source_parser/download_queue_controller.dart#openDownloadedFolder: '
+        'failed directory=$directoryPath error=$error',
+      );
+      rethrow;
+    }
   }
 
   Future<void> openHistoryFolder(DownloadHistoryRecord record) async {
@@ -286,7 +318,24 @@ class DownloadQueueController extends ChangeNotifier {
     if (!await file.exists()) {
       throw DownloadException('历史文件不存在，可能已被移动或删除：${record.filePath}');
     }
-    await _folderOpener(record.filePath);
+    final directoryPath = _containingDirectoryPathFor(record.filePath);
+    debugPrint(
+      'lib/source_parser/download_queue_controller.dart#openHistoryFolder: '
+      'request file=${record.filePath} directory=$directoryPath',
+    );
+    try {
+      await _folderOpener(record.filePath);
+      debugPrint(
+        'lib/source_parser/download_queue_controller.dart#openHistoryFolder: '
+        'success file=${record.filePath} directory=$directoryPath',
+      );
+    } on Object catch (error) {
+      debugPrint(
+        'lib/source_parser/download_queue_controller.dart#openHistoryFolder: '
+        'failed directory=$directoryPath error=$error',
+      );
+      rethrow;
+    }
   }
 
   Future<void> clearHistory() async {
@@ -361,6 +410,7 @@ class DownloadQueueController extends ChangeNotifier {
         );
         outputFile = await _downloadHttp(task, directory);
       }
+      await _validateDownloadedFile(task, outputFile);
 
       task.progress = 1;
       task.status = DownloadStatus.completed;
@@ -394,6 +444,31 @@ class DownloadQueueController extends ChangeNotifier {
       notifyListeners();
     } finally {
       _stopDownloadElapsedTicker();
+    }
+  }
+
+  Future<void> _validateDownloadedFile(
+    DownloadTask task,
+    File? outputFile,
+  ) async {
+    if (outputFile == null) {
+      throw const DownloadException('下载未生成输出文件');
+    }
+    if (!await outputFile.exists()) {
+      throw DownloadException('下载输出文件不存在：${outputFile.path}');
+    }
+    final fileSize = await outputFile.length();
+    task.filePath = outputFile.path;
+    task.totalBytes = fileSize;
+    task.receivedBytes = fileSize;
+    task.addLog(
+      'lib/source_parser/download_queue_controller.dart#_validateDownloadedFile: '
+      'file=${outputFile.path} size=$fileSize',
+    );
+    if (fileSize <= 0) {
+      throw const DownloadException(
+        '下载结果为空文件，已判定为失败；请重试，或对 YouTube 资源开启 yt-dlp 兜底',
+      );
     }
   }
 
@@ -534,7 +609,8 @@ class DownloadQueueController extends ChangeNotifier {
         'lib/source_parser/download_queue_controller.dart#_downloadHttpWithPackageClient: http=${response.statusCode} contentLength=${response.contentLength ?? -1}',
       );
 
-      task.statusDetail = response.contentLength != null && response.contentLength! > 0
+      task.statusDetail =
+          response.contentLength != null && response.contentLength! > 0
           ? '直连下载中（已知文件大小）…'
           : '直连下载中（未提供总大小，进度为估算）…';
       task.totalBytes = response.contentLength;
@@ -654,33 +730,36 @@ class DownloadQueueController extends ChangeNotifier {
       );
     }
 
-    final absolutePath = _absolutePathForReveal(path, entityType);
+    final absolutePath = _absolutePathForOpen(path, entityType);
+    debugPrint(
+      'lib/source_parser/download_queue_controller.dart#_defaultFolderOpener: '
+      'platform=${Platform.operatingSystem} input=$path entityType=$entityType path=$absolutePath',
+    );
 
     if (Platform.isMacOS) {
-      if (await tryRevealPathWithNsWorkspace(absolutePath)) {
+      final revealed = await tryRevealPathWithNsWorkspace(absolutePath);
+      debugPrint(
+        'lib/source_parser/download_queue_controller.dart#_defaultFolderOpener: '
+        'nsWorkspaceResult=$revealed path=$absolutePath',
+      );
+      if (revealed) {
         return;
       }
 
-      const openBin = '/usr/bin/open';
-      if (entityType == FileSystemEntityType.file) {
-        var result = await Process.run(openBin, ['-R', absolutePath]);
-        if (result.exitCode != 0) {
-          debugPrint(
-            'lib/source_parser/download_queue_controller.dart#_defaultFolderOpener: '
-            'macOS open -R failed exit=${result.exitCode} stderr=${result.stderr}，改打开所在文件夹',
-          );
-          final parent = File(absolutePath).parent.path;
-          result = await Process.run(openBin, [parent]);
-        }
-        if (result.exitCode != 0) {
-          throw DownloadException(
-            'lib/source_parser/download_queue_controller.dart#_defaultFolderOpener: macOS open 失败: ${result.stderr}',
-          );
-        }
-        return;
-      }
-
-      final result = await Process.run(openBin, [absolutePath]);
+      debugPrint(
+        'lib/source_parser/download_queue_controller.dart#_defaultFolderOpener: '
+        'NSWorkspace 打开失败，回退 /usr/bin/open path=$absolutePath',
+      );
+      final result = await Process.run(
+        '/usr/bin/open',
+        entityType == FileSystemEntityType.file
+            ? ['-R', absolutePath]
+            : [absolutePath],
+      );
+      debugPrint(
+        'lib/source_parser/download_queue_controller.dart#_defaultFolderOpener: '
+        'fallback open exit=${result.exitCode} stdout=${result.stdout} stderr=${result.stderr}',
+      );
       if (result.exitCode != 0) {
         throw DownloadException(
           'lib/source_parser/download_queue_controller.dart#_defaultFolderOpener: macOS open 失败: ${result.stderr}',
@@ -691,23 +770,15 @@ class DownloadQueueController extends ChangeNotifier {
 
     if (Platform.isWindows) {
       final winPath = absolutePath.replaceAll('/', r'\');
-      if (entityType == FileSystemEntityType.file) {
-        final selectArg = '/select,"$winPath"';
-        final result = await Process.run(
-          r'C:\Windows\explorer.exe',
-          [selectArg],
-        );
-        if (!_windowsExplorerExitLooksSuccessful(result.exitCode)) {
-          throw DownloadException(
-            'lib/source_parser/download_queue_controller.dart#_defaultFolderOpener: Windows explorer 失败: ${result.stderr}',
-          );
-        }
-        return;
-      }
-
       final result = await Process.run(
         r'C:\Windows\explorer.exe',
-        [winPath],
+        entityType == FileSystemEntityType.file
+            ? ['/select,', winPath]
+            : [winPath],
+      );
+      debugPrint(
+        'lib/source_parser/download_queue_controller.dart#_defaultFolderOpener: '
+        'windows explorer exit=${result.exitCode} stdout=${result.stdout} stderr=${result.stderr}',
       );
       if (!_windowsExplorerExitLooksSuccessful(result.exitCode)) {
         throw DownloadException(
@@ -717,10 +788,15 @@ class DownloadQueueController extends ChangeNotifier {
       return;
     }
 
-    final targetPath = entityType == FileSystemEntityType.file
-        ? File(absolutePath).parent.path
-        : absolutePath;
-    final result = await Process.run('xdg-open', [targetPath]);
+    final result = await Process.run('xdg-open', [
+      entityType == FileSystemEntityType.file
+          ? File(absolutePath).parent.path
+          : absolutePath,
+    ]);
+    debugPrint(
+      'lib/source_parser/download_queue_controller.dart#_defaultFolderOpener: '
+      'xdg-open exit=${result.exitCode} stdout=${result.stdout} stderr=${result.stderr}',
+    );
     if (result.exitCode != 0) {
       throw DownloadException(
         'lib/source_parser/download_queue_controller.dart#_defaultFolderOpener: Linux xdg-open 失败: ${result.stderr}',
@@ -733,16 +809,23 @@ class DownloadQueueController extends ChangeNotifier {
     return exitCode == 0 || exitCode == 1;
   }
 
-  static String _absolutePathForReveal(String path, FileSystemEntityType type) {
+  static String _absolutePathForOpen(String path, FileSystemEntityType type) {
     try {
-      return type == FileSystemEntityType.file
-          ? File(path).resolveSymbolicLinksSync()
-          : Directory(path).resolveSymbolicLinksSync();
+      if (type == FileSystemEntityType.file) {
+        return File(path).resolveSymbolicLinksSync();
+      }
+      return Directory(path).resolveSymbolicLinksSync();
     } on FileSystemException {
       return type == FileSystemEntityType.file
           ? File(path).absolute.path
           : Directory(path).absolute.path;
     }
+  }
+
+  static String _containingDirectoryPathFor(String filePath) {
+    return File(
+      _absolutePathForOpen(filePath, FileSystemEntityType.file),
+    ).parent.path;
   }
 
   static Future<ProcessResult> _defaultProcessRunner(

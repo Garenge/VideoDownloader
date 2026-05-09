@@ -94,6 +94,37 @@ void main() {
     expect(openedPath, task.filePath);
   });
 
+  test('opens history item containing folder', () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'videodownloader_history_open_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+
+    final file = File('${tempDirectory.path}/nested/sample.mp4');
+    await file.parent.create(recursive: true);
+    await file.writeAsString('history bytes');
+
+    String? openedPath;
+    final controller = DownloadQueueController(
+      downloadHistoryStore: await _createHistoryStore(tempDirectory),
+      folderOpener: (path) async {
+        openedPath = path;
+      },
+    );
+    addTearDown(controller.dispose);
+
+    await controller.openHistoryFolder(
+      DownloadHistoryRecord(
+        fileName: 'sample.mp4',
+        filePath: file.path,
+        sourceUrl: _resource.url,
+        completedAt: DateTime.now(),
+      ),
+    );
+
+    expect(openedPath, file.path);
+  });
+
   test('retry reruns a failed task', () async {
     final tempDirectory = await Directory.systemTemp.createTemp(
       'videodownloader_retry_',
@@ -127,7 +158,32 @@ void main() {
     expect(controller.history, hasLength(1));
   });
 
-  test('falls back to yt-dlp when youtube explode path fails', () async {
+  test('fails when downloaded file is empty', () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'videodownloader_empty_http_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+
+    final controller = DownloadQueueController(
+      useIoHttpClientForDirectDownloads: false,
+      client: MockClient((request) async {
+        return http.Response('', 200, request: request);
+      }),
+      downloadDirectoryResolver: () async => tempDirectory,
+      downloadHistoryStore: await _createHistoryStore(tempDirectory),
+    );
+    addTearDown(controller.dispose);
+
+    final task = controller.enqueue(_resource);
+    await _waitForStatus(task, DownloadStatus.failed);
+
+    expect(task.errorMessage, contains('下载结果为空文件，已判定为失败'));
+    expect(controller.history, isEmpty);
+    expect(task.filePath, isNotNull);
+    expect(await File(task.filePath!).exists(), isFalse);
+  });
+
+  test('downloads youtube via yt-dlp isolated workspace', () async {
     final tempDirectory = await Directory.systemTemp.createTemp(
       'videodownloader_ytdlp_fallback_',
     );
@@ -140,7 +196,8 @@ void main() {
       }),
       processStarter: (executable, arguments) async {
         expect(executable, 'yt-dlp');
-        final output = File('${tempDirectory.path}/fallback.mp4');
+        final output = File(_ytDlpOutputPath(arguments));
+        await output.parent.create(recursive: true);
         await output.writeAsString('from yt-dlp');
         return _startNoopProcess();
       },
@@ -153,9 +210,41 @@ void main() {
     await _waitForStatus(task, DownloadStatus.completed);
 
     expect(task.filePath, isNotNull);
-    expect(task.fileName, 'fallback.mp4');
+    expect(task.fileName, 'invalid_video_id.mp4');
     expect(await File(task.filePath!).readAsString(), 'from yt-dlp');
     expect(controller.history, hasLength(1));
+  });
+
+  test('fails when yt-dlp output file is empty', () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'videodownloader_empty_ytdlp_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+
+    final controller = DownloadQueueController(
+      useIoHttpClientForDirectDownloads: false,
+      client: MockClient((request) async {
+        return http.Response('upstream failure', 500, request: request);
+      }),
+      processStarter: (executable, arguments) async {
+        expect(executable, 'yt-dlp');
+        final output = File(_ytDlpOutputPath(arguments));
+        await output.parent.create(recursive: true);
+        await output.writeAsString('');
+        return _startNoopProcess();
+      },
+      downloadDirectoryResolver: () async => tempDirectory,
+      downloadHistoryStore: await _createHistoryStore(tempDirectory),
+    );
+    addTearDown(controller.dispose);
+
+    final task = controller.enqueue(_youtubeResource);
+    await _waitForStatus(task, DownloadStatus.failed);
+
+    expect(task.errorMessage, contains('下载结果为空文件，已判定为失败'));
+    expect(controller.history, isEmpty);
+    expect(task.filePath, isNotNull);
+    expect(await File(task.filePath!).exists(), isFalse);
   });
 
   test('tracks yt-dlp fallback progress output', () async {
@@ -176,7 +265,8 @@ void main() {
         expect(arguments, contains('--newline'));
         expect(arguments, contains('--color'));
         expect(arguments, isNot(contains('--cookies-from-browser')));
-        final output = File('${tempDirectory.path}/fallback-progress.mp4');
+        final output = File(_ytDlpOutputPath(arguments));
+        await output.parent.create(recursive: true);
         return _startProgressProcess(output);
       },
       downloadDirectoryResolver: () async => tempDirectory,
@@ -220,6 +310,7 @@ void main() {
       },
       downloadSettings: const DownloadSettings(
         enableYtDlpFallback: false,
+        preferYtDlpForYouTube: false,
         ytDlpConcurrency: 8,
         ytDlpRetries: 10,
         ytDlpFragmentRetries: 50,
@@ -249,6 +340,7 @@ void main() {
       ownClient: false,
       downloadSettings: const DownloadSettings(
         enableYtDlpFallback: false,
+        preferYtDlpForYouTube: false,
         ytDlpConcurrency: 8,
         ytDlpRetries: 10,
         ytDlpFragmentRetries: 50,
@@ -295,6 +387,70 @@ void main() {
 
     expect(controller.history, isEmpty);
     expect(await historyStore.load(), isEmpty);
+  });
+
+  test('prefers yt-dlp for youtube downloads when enabled', () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'videodownloader_ytdlp_preferred_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+
+    var ytDlpCalled = false;
+    final controller = DownloadQueueController(
+      useIoHttpClientForDirectDownloads: false,
+      client: _SpyHttpClient(),
+      processStarter: (executable, arguments) async {
+        ytDlpCalled = true;
+        expect(executable, 'yt-dlp');
+        final output = File(_ytDlpOutputPath(arguments));
+        await output.parent.create(recursive: true);
+        await output.writeAsString('preferred yt-dlp');
+        return _startNoopProcess();
+      },
+      downloadDirectoryResolver: () async => tempDirectory,
+      downloadHistoryStore: await _createHistoryStore(tempDirectory),
+    );
+    addTearDown(controller.dispose);
+
+    final task = controller.enqueue(_youtubeResource);
+    await _waitForStatus(task, DownloadStatus.completed);
+
+    expect(ytDlpCalled, isTrue);
+    expect(task.fileName, 'invalid_video_id.mp4');
+    expect(await File(task.filePath!).readAsString(), 'preferred yt-dlp');
+  });
+
+  test('isolates yt-dlp output from existing download files', () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'videodownloader_ytdlp_isolated_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+
+    final existingFile = File('${tempDirectory.path}/invalid_video_id.mp4');
+    await existingFile.writeAsString('old bytes');
+
+    final controller = DownloadQueueController(
+      useIoHttpClientForDirectDownloads: false,
+      client: _SpyHttpClient(),
+      processStarter: (executable, arguments) async {
+        expect(executable, 'yt-dlp');
+        final output = File(_ytDlpOutputPath(arguments));
+        await output.parent.create(recursive: true);
+        await output.writeAsString('new bytes from yt-dlp');
+        return _startNoopProcess();
+      },
+      downloadDirectoryResolver: () async => tempDirectory,
+      downloadHistoryStore: await _createHistoryStore(tempDirectory),
+    );
+    addTearDown(controller.dispose);
+
+    final task = controller.enqueue(_youtubeResource);
+    await _waitForStatus(task, DownloadStatus.completed);
+
+    expect(task.filePath, isNot(existingFile.path));
+    expect(task.fileName, 'invalid_video_id-2.mp4');
+    expect(await existingFile.readAsString(), 'old bytes');
+    expect(await File(task.filePath!).readAsString(), 'new bytes from yt-dlp');
   });
 }
 
@@ -349,6 +505,13 @@ Future<Process> _startProgressProcess(File output) {
       "echo 'after_move:$escapedPath'",
     ].join('; '),
   ]);
+}
+
+String _ytDlpOutputPath(List<String> arguments, {String extension = 'mp4'}) {
+  final outputIndex = arguments.indexOf('-o');
+  expect(outputIndex, isNot(-1));
+  final template = arguments[outputIndex + 1];
+  return template.replaceAll('%(ext)s', extension);
 }
 
 const _resource = SourceResource(

@@ -70,6 +70,7 @@ class DownloadSettingsPanel extends StatelessWidget {
 
   Widget _buildDirectoryText(BuildContext context) {
     final path = selectedDirectoryPath;
+    final colorScheme = Theme.of(context).colorScheme;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -82,21 +83,26 @@ class DownloadSettingsPanel extends StatelessWidget {
         ),
         const SizedBox(height: 2),
         Text(
-          path ?? '默认保存到应用文档目录',
+          path ?? '默认保存到应用文档目录（VideoDownloader）',
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            color: colorScheme.onSurfaceVariant,
+            fontWeight: FontWeight.w600,
           ),
         ),
         const SizedBox(height: 2),
         Text(
-          downloadSettings.enableYtDlpFallback ? 'YouTube 兜底：开启' : 'YouTube 兜底：关闭',
+          downloadSettings.enableYtDlpFallback
+              ? downloadSettings.preferYtDlpForYouTube
+                    ? 'YouTube 下载：yt-dlp 优先'
+                    : 'YouTube 下载：应用内优先，yt-dlp 兜底'
+              : 'YouTube 下载：仅应用内',
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
+          style: Theme.of(
+            context,
+          ).textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant),
         ),
         if (toolStatus.externalCommandBlocked) ...[
           const SizedBox(height: 2),
@@ -370,49 +376,61 @@ class _DownloadTaskTile extends StatelessWidget {
     final canOpenFolder =
         task.status == DownloadStatus.completed && task.filePath != null;
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _DownloadStatusIcon(status: task.status),
-        const SizedBox(width: 12),
-        Expanded(child: _buildTaskContent(context)),
-        if (canOpenFolder) ...[
-          const SizedBox(width: 8),
-          IconButton(
-            onPressed: onOpenFolder,
-            tooltip: '打开所在文件夹',
-            icon: const Icon(Icons.folder_open),
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _DownloadStatusIcon(status: task.status),
+          const SizedBox(width: 12),
+          Expanded(child: _buildTaskContent(context)),
+          const SizedBox(width: 12),
+          ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 48),
+            child: Wrap(
+              spacing: 4,
+              runSpacing: 4,
+              alignment: WrapAlignment.end,
+              children: [
+                if (canOpenFolder)
+                  _TaskActionButton(
+                    onPressed: onOpenFolder,
+                    tooltip: '打开所在文件夹',
+                    icon: Icons.folder_open,
+                  ),
+                if (canRetry)
+                  _TaskActionButton(
+                    onPressed: onRetry,
+                    tooltip: '重试',
+                    icon: Icons.refresh,
+                  ),
+                if (canCopyLogs)
+                  _TaskActionButton(
+                    onPressed: onCopyLogs,
+                    tooltip: '复制日志',
+                    icon: Icons.copy_all,
+                  ),
+                if (canCancel)
+                  _TaskActionButton(
+                    onPressed: onCancel,
+                    tooltip: '取消',
+                    icon: Icons.close,
+                  ),
+              ],
+            ),
           ),
         ],
-        if (canRetry) ...[
-          const SizedBox(width: 8),
-          IconButton(
-            onPressed: onRetry,
-            tooltip: '重试',
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
-        if (canCopyLogs) ...[
-          const SizedBox(width: 8),
-          IconButton(
-            onPressed: onCopyLogs,
-            tooltip: '复制日志',
-            icon: const Icon(Icons.copy_all),
-          ),
-        ],
-        if (canCancel) ...[
-          const SizedBox(width: 8),
-          IconButton(
-            onPressed: onCancel,
-            tooltip: '取消',
-            icon: const Icon(Icons.close),
-          ),
-        ],
-      ],
+      ),
     );
   }
 
   Widget _buildTaskContent(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -423,16 +441,25 @@ class _DownloadTaskTile extends StatelessWidget {
                 task.fileName,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(
-                  context,
-                ).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: colorScheme.onSurface,
+                ),
               ),
             ),
             const SizedBox(width: 8),
-            Text(
-              task.status.displayName,
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: _statusBadgeBackgroundColor(context, task.status),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                task.status.displayName,
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: _statusBadgeForegroundColor(context, task.status),
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
           ],
@@ -444,43 +471,224 @@ class _DownloadTaskTile extends StatelessWidget {
           borderRadius: BorderRadius.circular(6),
         ),
         const SizedBox(height: 6),
+        _TaskMetaInfo(task: task),
+      ],
+    );
+  }
+}
+
+class _TaskMetaInfo extends StatelessWidget {
+  const _TaskMetaInfo({required this.task});
+
+  final DownloadTask task;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final secondaryStyle = Theme.of(
+      context,
+    ).textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant);
+    final emphasisStyle = secondaryStyle?.copyWith(
+      fontWeight: FontWeight.w700,
+      color: colorScheme.onSurface,
+    );
+    final leadingText = _leadingMetaText(task);
+    final trailingText = _trailingMetaText(task);
+    final detailText = _detailMetaText(task);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                leadingText,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: emphasisStyle,
+              ),
+            ),
+            if (trailingText.isNotEmpty) ...[
+              const SizedBox(width: 8),
+              Text(
+                trailingText,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: emphasisStyle,
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: 2),
         Text(
-          _taskDetail,
-          maxLines: 3,
+          detailText,
+          maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
+          style: secondaryStyle,
         ),
       ],
     );
   }
+}
 
-  String get _taskDetail {
-    final error = task.errorMessage;
-    if (error != null) {
-      return error;
-    }
-
-    final filePath = task.filePath;
-    if (filePath != null && task.status == DownloadStatus.completed) {
-      return filePath;
-    }
-
-    final elapsed = _formatDownloadElapsed(task.activeStartedAt);
-    final detail = task.statusDetail;
-    final progressText = task.progressLabel;
-
-    if (elapsed.isEmpty) {
-      return detail != null && detail.isNotEmpty ? '$detail · $progressText' : progressText;
-    }
-
-    if (detail != null && detail.isNotEmpty) {
-      return '$elapsed · $detail · $progressText';
-    }
-
-    return '$elapsed · $progressText';
+String _leadingMetaText(DownloadTask task) {
+  final elapsed = _formatDownloadElapsed(task.activeStartedAt);
+  if (elapsed.isNotEmpty) {
+    return elapsed;
   }
+
+  return switch (task.status) {
+    DownloadStatus.pending => '等待开始',
+    DownloadStatus.downloading => '准备下载',
+    DownloadStatus.completed => '已保存',
+    DownloadStatus.failed => '下载失败',
+    DownloadStatus.canceled => '已取消',
+  };
+}
+
+String _trailingMetaText(DownloadTask task) {
+  return switch (task.status) {
+    DownloadStatus.pending => '排队中',
+    DownloadStatus.completed => '100%',
+    DownloadStatus.failed ||
+    DownloadStatus.canceled => _compactProgressText(task),
+    DownloadStatus.downloading => _compactProgressText(task),
+  };
+}
+
+String _detailMetaText(DownloadTask task) {
+  final error = task.errorMessage?.trim();
+  if (error != null && error.isNotEmpty) {
+    return error;
+  }
+
+  final filePath = task.filePath;
+  if (filePath != null && task.status == DownloadStatus.completed) {
+    return '保存到 ${_compactSavedLocation(filePath)}';
+  }
+
+  return switch (task.status) {
+    DownloadStatus.pending => '等待前序任务完成后自动开始',
+    DownloadStatus.downloading => _compactStatusText(task),
+    DownloadStatus.completed => '下载完成',
+    DownloadStatus.failed => '下载失败，请查看日志后重试',
+    DownloadStatus.canceled => '任务已取消，可重新发起下载',
+  };
+}
+
+String _compactProgressText(DownloadTask task) {
+  final totalBytes = task.totalBytes;
+  if (totalBytes != null && totalBytes > 0) {
+    final percent = (task.progress * 100).clamp(0, 100).toStringAsFixed(0);
+    return '$percent%';
+  }
+
+  if (task.receivedBytes > 0) {
+    return _formatBytes(task.receivedBytes);
+  }
+
+  return '';
+}
+
+String _compactStatusText(DownloadTask task) {
+  final detail = task.statusDetail?.trim() ?? '';
+  final waitSeconds = _downloadElapsedSeconds(task.activeStartedAt);
+  final totalBytes = task.totalBytes;
+
+  if (detail.contains('解析可用清晰度')) {
+    return '正在解析清晰度';
+  }
+  if (detail.contains('获取视频信息')) {
+    return '正在获取视频信息';
+  }
+  if (detail.contains('正在下载视频流')) {
+    return _downloadAmountLabel(task, fallback: '正在下载视频流');
+  }
+  if (detail.contains('改用 yt-dlp')) {
+    return '正在切换到 yt-dlp';
+  }
+  if (detail.contains('yt-dlp 下载中')) {
+    return _downloadAmountLabel(task, fallback: 'yt-dlp 下载中');
+  }
+  if (detail.contains('连接服务器')) {
+    return waitSeconds > 0 ? '连接服务器中，已等待 ${waitSeconds}s' : '连接服务器中';
+  }
+  if (detail.contains('连接资源中')) {
+    return waitSeconds > 0 ? '连接资源中，已等待 ${waitSeconds}s' : '连接资源中';
+  }
+  if (detail.contains('准备下载')) {
+    return '准备下载';
+  }
+  if (detail.contains('已知文件大小') || totalBytes != null && totalBytes > 0) {
+    return _downloadAmountLabel(task, fallback: '正在下载内容');
+  }
+  if (detail.contains('未提供总大小')) {
+    return task.receivedBytes > 0
+        ? '已接收 ${_formatBytes(task.receivedBytes)}'
+        : '正在接收数据';
+  }
+  if (detail.isNotEmpty) {
+    return _normalizeStatusDetail(detail);
+  }
+  if (task.receivedBytes > 0) {
+    return '已接收 ${_formatBytes(task.receivedBytes)}';
+  }
+  return waitSeconds > 0 ? '连接资源中，已等待 ${waitSeconds}s' : '连接资源中';
+}
+
+String _downloadAmountLabel(DownloadTask task, {required String fallback}) {
+  final totalBytes = task.totalBytes;
+  if (totalBytes != null && totalBytes > 0) {
+    return '${_formatBytes(task.receivedBytes)} / ${_formatBytes(totalBytes)}';
+  }
+  if (task.receivedBytes > 0) {
+    return '已接收 ${_formatBytes(task.receivedBytes)}';
+  }
+  return fallback;
+}
+
+String _normalizeStatusDetail(String detail) {
+  return detail
+      .replaceAll('YouTube：', '')
+      .replaceAll('直连：', '')
+      .replaceAll('…', '')
+      .replaceAll('（首次可能较慢）', '')
+      .trim();
+}
+
+String _compactSavedLocation(String filePath) {
+  final normalized = filePath.replaceAll('\\', '/');
+  final segments = normalized
+      .split('/')
+      .where((item) => item.isNotEmpty)
+      .toList();
+  if (segments.isEmpty) {
+    return filePath;
+  }
+  if (segments.length == 1) {
+    return segments.single;
+  }
+  return '${segments[segments.length - 2]}/${segments.last}';
+}
+
+String _formatBytes(int bytes) {
+  if (bytes < 1024) {
+    return '$bytes B';
+  }
+
+  final kb = bytes / 1024;
+  if (kb < 1024) {
+    return '${kb.toStringAsFixed(1)} KB';
+  }
+
+  final mb = kb / 1024;
+  if (mb < 1024) {
+    return '${mb.toStringAsFixed(1)} MB';
+  }
+
+  final gb = mb / 1024;
+  return '${gb.toStringAsFixed(1)} GB';
 }
 
 double? _progressIndicatorValue(DownloadTask task) {
@@ -502,16 +710,23 @@ double? _progressIndicatorValue(DownloadTask task) {
 }
 
 String _formatDownloadElapsed(DateTime? startedAt) {
-  if (startedAt == null) {
+  final seconds = _downloadElapsedSeconds(startedAt);
+  if (seconds < 0) {
     return '';
   }
-  final seconds = DateTime.now().difference(startedAt).inSeconds;
   if (seconds < 60) {
     return '已进行 ${seconds}s';
   }
   final minutes = seconds ~/ 60;
   final rest = seconds % 60;
   return '已进行 ${minutes}m ${rest}s';
+}
+
+int _downloadElapsedSeconds(DateTime? startedAt) {
+  if (startedAt == null) {
+    return -1;
+  }
+  return DateTime.now().difference(startedAt).inSeconds;
 }
 
 class _DownloadStatusIcon extends StatelessWidget {
@@ -565,6 +780,28 @@ class _DownloadStatusIcon extends StatelessWidget {
   }
 }
 
+class _TaskActionButton extends StatelessWidget {
+  const _TaskActionButton({
+    required this.onPressed,
+    required this.tooltip,
+    required this.icon,
+  });
+
+  final VoidCallback onPressed;
+  final String tooltip;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton.filledTonal(
+      onPressed: onPressed,
+      tooltip: tooltip,
+      icon: Icon(icon, size: 20),
+      visualDensity: VisualDensity.compact,
+    );
+  }
+}
+
 class _CountPill extends StatelessWidget {
   const _CountPill({required this.label, required this.count});
 
@@ -593,7 +830,36 @@ class _CountPill extends StatelessWidget {
 BoxDecoration _panelDecoration(BuildContext context) {
   return BoxDecoration(
     color: Theme.of(context).colorScheme.surface,
-    borderRadius: BorderRadius.circular(8),
+    borderRadius: BorderRadius.circular(16),
     border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+    boxShadow: [
+      BoxShadow(
+        color: Colors.black.withValues(alpha: 0.04),
+        blurRadius: 18,
+        offset: const Offset(0, 6),
+      ),
+    ],
   );
+}
+
+Color _statusBadgeBackgroundColor(BuildContext context, DownloadStatus status) {
+  final colorScheme = Theme.of(context).colorScheme;
+  return switch (status) {
+    DownloadStatus.pending => colorScheme.secondaryContainer,
+    DownloadStatus.downloading => colorScheme.primaryContainer,
+    DownloadStatus.completed => Colors.green.shade100,
+    DownloadStatus.failed => colorScheme.errorContainer,
+    DownloadStatus.canceled => colorScheme.surfaceContainerHighest,
+  };
+}
+
+Color _statusBadgeForegroundColor(BuildContext context, DownloadStatus status) {
+  final colorScheme = Theme.of(context).colorScheme;
+  return switch (status) {
+    DownloadStatus.pending => colorScheme.onSecondaryContainer,
+    DownloadStatus.downloading => colorScheme.onPrimaryContainer,
+    DownloadStatus.completed => Colors.green.shade900,
+    DownloadStatus.failed => colorScheme.onErrorContainer,
+    DownloadStatus.canceled => colorScheme.onSurfaceVariant,
+  };
 }
