@@ -19,6 +19,7 @@ import 'download_queue_panel.dart';
 import 'media_conversion_controller.dart';
 import 'media_conversion_panel.dart';
 import 'parse_history_store.dart';
+import 'path_log_label.dart';
 import 'proxied_http_client_factory.dart';
 import 'proxy_settings_sheet.dart';
 import 'proxy_settings_store.dart';
@@ -226,6 +227,8 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
   ValueListenable<IncomingLinkEvent?>? _attachedIncomingLinkListenable;
   _IncomingBannerState? _incomingBannerState;
   final List<String> _incomingShareLogLines = <String>[];
+  OverlayEntry? _pageToastEntry;
+  Timer? _pageToastTimer;
 
   @override
   void initState() {
@@ -592,6 +595,7 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
   @override
   void dispose() {
     _parseElapsedTicker?.cancel();
+    _hidePageToast();
     _detachIncomingLinkListenable();
     _urlController.dispose();
     _resourceSearchController.dispose();
@@ -602,6 +606,78 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
     _mediaConversionController?.dispose();
     _resourceTypeTabController.dispose();
     super.dispose();
+  }
+
+  void _showPageToast(String message) {
+    final text = message.trim();
+    if (!mounted || text.isEmpty) {
+      return;
+    }
+
+    final overlay = Overlay.maybeOf(context, rootOverlay: true);
+    if (overlay == null) {
+      return;
+    }
+
+    _hidePageToast();
+    final entry = OverlayEntry(builder: (_) => _buildPageToast(text));
+    _pageToastEntry = entry;
+    overlay.insert(entry);
+    _pageToastTimer = Timer(const Duration(seconds: 2), _hidePageToast);
+  }
+
+  void _hidePageToast() {
+    _pageToastTimer?.cancel();
+    _pageToastTimer = null;
+    _pageToastEntry?.remove();
+    _pageToastEntry = null;
+  }
+
+  Widget _buildPageToast(String message) {
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 360),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: const Color(0xE6000000),
+                    borderRadius: BorderRadius.circular(8),
+                    boxShadow: const [
+                      BoxShadow(
+                        blurRadius: 20,
+                        color: Color(0x33000000),
+                        offset: Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    child: Text(
+                      message,
+                      maxLines: 4,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   void _attachIncomingLinkListenable() {
@@ -893,9 +969,7 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
   Future<void> _showIncomingShareLogsDialog() async {
     final text = _buildIncomingShareLogText();
     if (text == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('当前还没有可复制的分享接入日志')));
+      _showPageToast('当前还没有可复制的分享接入日志');
       return;
     }
 
@@ -921,9 +995,7 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
                   return;
                 }
                 Navigator.of(dialogContext).pop();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('分享接入日志已复制，可直接粘贴给我')),
-                );
+                _showPageToast('分享接入日志已复制，可直接粘贴给我');
               },
               child: const Text('复制日志'),
             ),
@@ -991,9 +1063,7 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('已在浏览器打开')));
+      _showPageToast('已在浏览器打开');
     } on SourceParserException catch (error) {
       _showOpenBrowserError(error.message, attemptedUrl: url);
     } on Object catch (error) {
@@ -1009,9 +1079,7 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
     if (!mounted) {
       return;
     }
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('打开浏览器失败：$message')));
+    _showPageToast('打开浏览器失败：$message');
   }
 
   void _logParseResult(SourceParseResult result) {
@@ -1070,6 +1138,9 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
     if (_resolvingResourceUrls.contains(resource.url)) {
       return;
     }
+    if (!Platform.isIOS && _needsDownloadPreflightToast(resource)) {
+      _showPageToast('已开启后台解析，正在确认资源是否可下载');
+    }
     setState(() => _resolvingResourceUrls.add(resource.url));
     late final XVideoPreflightResult preflightResult;
     try {
@@ -1096,14 +1167,16 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
     _enqueueDownload(resource);
   }
 
+  bool _needsDownloadPreflightToast(SourceResource resource) {
+    return resource.requiresYtDlp && resource.platform == SourcePlatform.x;
+  }
+
   void _enqueueDownload(SourceResource resource) {
     final task = _downloadQueueController!.enqueue(resource);
     setState(() {
       _downloadPanelOpen = true;
     });
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('已加入下载队列：${task.fileName}')));
+    _showPageToast('已加入下载队列：${task.fileName}');
   }
 
   Future<XVideoPreflightResult> _maybeProbeXVideoBeforeDownload(
@@ -1389,10 +1462,9 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
                   if (!mounted) {
                     return;
                   }
-                  Navigator.of(context).pop();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('预检日志已复制，可直接粘贴给我')),
-                  );
+                  if (!dialogContext.mounted) return;
+                  Navigator.of(dialogContext).pop();
+                  _showPageToast('预检日志已复制，可直接粘贴给我');
                 },
                 child: const Text('复制日志'),
               ),
@@ -1527,72 +1599,62 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
   }
 
   Future<void> _handleOpenDownloadedFolder(DownloadTask task) async {
+    final fileLabel = pathLogLabel(task.filePath ?? task.fileName);
     try {
       debugPrint(
         'lib/source_parser/source_parser_home_page.dart#_handleOpenDownloadedFolder: '
-        'click file=${task.filePath} status=${task.status.name}',
+        'click file=$fileLabel status=${task.status.name}',
       );
       await _downloadQueueController!.openDownloadedFolder(task);
       debugPrint(
         'lib/source_parser/source_parser_home_page.dart#_handleOpenDownloadedFolder: '
-        'success file=${task.filePath}',
+        'success file=$fileLabel',
       );
     } on Object catch (error) {
       debugPrint(
         'lib/source_parser/source_parser_home_page.dart#_handleOpenDownloadedFolder: '
-        'failed file=${task.filePath} error=$error',
+        'failed file=$fileLabel error=$error',
       );
       if (!mounted) {
         return;
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(Platform.isIOS ? '分享文件失败：$error' : '打开文件夹失败：$error'),
-        ),
-      );
+      _showPageToast(Platform.isIOS ? '分享文件失败：$error' : '打开文件夹失败：$error');
     }
   }
 
   Future<void> _handleOpenHistoryFolder(DownloadHistoryRecord record) async {
+    final fileLabel = pathLogLabel(record.filePath);
     try {
       debugPrint(
         'lib/source_parser/source_parser_home_page.dart#_handleOpenHistoryFolder: '
-        'click file=${record.filePath}',
+        'click file=$fileLabel',
       );
       await _downloadQueueController!.openHistoryFolder(record);
       debugPrint(
         'lib/source_parser/source_parser_home_page.dart#_handleOpenHistoryFolder: '
-        'success file=${record.filePath}',
+        'success file=$fileLabel',
       );
     } on Object catch (error) {
       debugPrint(
         'lib/source_parser/source_parser_home_page.dart#_handleOpenHistoryFolder: '
-        'failed file=${record.filePath} error=$error',
+        'failed file=$fileLabel error=$error',
       );
       if (!mounted) {
         return;
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(Platform.isIOS ? '分享文件失败：$error' : '打开历史文件夹失败：$error'),
-        ),
-      );
+      _showPageToast(Platform.isIOS ? '分享文件失败：$error' : '打开历史文件夹失败：$error');
     }
   }
 
   void _handleConvertHistoryToMp4(DownloadHistoryRecord record) {
     if (_downloadToolStatus.externalCommandBlocked) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('当前环境禁止执行 ffmpeg，暂时无法转 MP4')),
-      );
+      _showPageToast('当前环境禁止执行 ffmpeg，暂时无法转 MP4');
       return;
     }
     if (!_downloadToolStatus.ffmpegAvailable) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('未检测到 ffmpeg，无法转 MP4')));
+      _showPageToast('未检测到 ffmpeg，无法转 MP4');
       return;
     }
 
@@ -1600,9 +1662,7 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
     setState(() {
       _downloadPanelOpen = true;
     });
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('已加入转换队列：${task.outputFileName}')));
+    _showPageToast('已加入转换队列：${task.outputFileName}');
   }
 
   Future<void> _handleOpenConvertedFolder(MediaConversionTask task) async {
@@ -1625,18 +1685,14 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
         return;
       }
 
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('打开转换结果失败：$error')));
+      _showPageToast('打开转换结果失败：$error');
     }
   }
 
   Future<void> _handleCopyTaskLogs(DownloadTask task) async {
     final logs = task.logText.trim();
     if (logs.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('当前任务暂无可复制日志')));
+      _showPageToast('当前任务暂无可复制日志');
       return;
     }
 
@@ -1655,17 +1711,13 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
     if (!mounted) {
       return;
     }
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('下载日志已复制，可直接粘贴给我')));
+    _showPageToast('下载日志已复制，可直接粘贴给我');
   }
 
   Future<void> _handleCopyConversionLogs(MediaConversionTask task) async {
     final logs = task.logText.trim();
     if (logs.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('当前转换任务暂无可复制日志')));
+      _showPageToast('当前转换任务暂无可复制日志');
       return;
     }
 
@@ -1673,8 +1725,8 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
       '[Conversion Debug Log]',
       'taskId=${task.id}',
       'status=${task.status.name}',
-      'input=${task.inputRecord.filePath}',
-      'output=${task.outputFilePath ?? task.outputFileName}',
+      'input=${pathLogLabel(task.inputRecord.filePath)}',
+      'output=${pathLogLabel(task.outputFilePath ?? task.outputFileName)}',
       if (task.failureSummary != null) 'summary=${task.failureSummary}',
       if (task.errorMessage != null) 'error=${task.errorMessage}',
       '---',
@@ -1685,9 +1737,7 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
     if (!mounted) {
       return;
     }
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('转换日志已复制，可直接粘贴给我')));
+    _showPageToast('转换日志已复制，可直接粘贴给我');
   }
 
   void _selectHost(String? host) {

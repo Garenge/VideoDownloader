@@ -8,6 +8,7 @@ import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import '../download_queue_controller.dart'
     show DownloadTask, DownloadCanceledException, DownloadException;
 import '../download_settings.dart';
+import '../path_log_label.dart';
 import 'download_engine.dart';
 
 /// 在等待 [future] 期间周期性检查 [isCancelRequested]，以便长时间的 await 也能响应取消。
@@ -565,7 +566,7 @@ class YouTubeDownloadEngine extends DownloadEngine {
     task.totalBytes = null;
     task.addLog(
       'lib/source_parser/download_engines/youtube_download_engine.dart#_prepareYtDlpPlan: '
-      'workspace=${workspaceDirectory.path} target=${task.fileName}',
+      'workspace=${pathLogLabel(workspaceDirectory.path)} target=${task.fileName}',
     );
     return _YtDlpPlan(
       targetDirectory: directory,
@@ -629,7 +630,7 @@ class YouTubeDownloadEngine extends DownloadEngine {
     if (mediaFiles.isEmpty) {
       task.addLog(
         'lib/source_parser/download_engines/youtube_download_engine.dart#_pickStagedDownloadedFile: '
-        'empty_workspace workspace=${workspaceDirectory.path} files=${workspaceFiles.map((file) => file.path).join(" | ")}',
+        'empty_workspace workspace=${pathLogLabel(workspaceDirectory.path)} files=${workspaceFiles.map((file) => pathLogLabel(file.path)).join(" | ")}',
       );
       throw const DownloadException('yt-dlp 已执行成功，但当前任务工作区没有找到下载结果');
     }

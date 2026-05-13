@@ -4,6 +4,11 @@ import FlutterMacOS
 private let kRevealInFinderChannel = "videodownloader/reveal_in_finder"
 private let kXLoginChannel = "videodownloader/x_login"
 
+private func revealLogLabel(_ path: String) -> String {
+  let label = URL(fileURLWithPath: path).lastPathComponent
+  return label.isEmpty ? "-" : label
+}
+
 private func registerRevealInFinderChannel(_ messenger: FlutterBinaryMessenger) {
   let channel = FlutterMethodChannel(name: kRevealInFinderChannel, binaryMessenger: messenger)
   channel.setMethodCallHandler { call, result in
@@ -16,33 +21,36 @@ private func registerRevealInFinderChannel(_ messenger: FlutterBinaryMessenger) 
         FlutterError(code: "bad_args", message: "reveal requires non-empty path string", details: nil))
       return
     }
-    NSLog("macos/Runner/MainFlutterWindow.swift#reveal: request path=%@", path)
+    let requestLabel = revealLogLabel(path)
+    NSLog("macos/Runner/MainFlutterWindow.swift#reveal: request path=%@", requestLabel)
 
     let fm = FileManager.default
     var isDir: ObjCBool = false
     // 规范化 `..`、多余 `/`、以及 `~`；避免与 Finder 实际展示路径不一致。
     let stdPath = (path as NSString).standardizingPath
+    let stdLabel = revealLogLabel(stdPath)
     guard fm.fileExists(atPath: stdPath, isDirectory: &isDir) else {
-      NSLog("macos/Runner/MainFlutterWindow.swift#reveal: stdPath missing path=%@", stdPath)
+      NSLog("macos/Runner/MainFlutterWindow.swift#reveal: stdPath missing path=%@", stdLabel)
       result(
         FlutterError(code: "not_found", message: "path does not exist", details: stdPath))
       return
     }
     NSLog(
       "macos/Runner/MainFlutterWindow.swift#reveal: standardized path=%@ isDir=%@",
-      stdPath,
+      stdLabel,
       isDir.boolValue.description)
 
     let baseURL = URL(fileURLWithPath: stdPath, isDirectory: isDir.boolValue)
     // 与 Finder 一致地解析符号链接；`selectFile(_:inFileViewerRootedAtPath:)` 在含 symlink
     // 时容易打开错误根目录（例如只到用户家目录）。
     let targetURL = baseURL.resolvingSymlinksInPath()
+    let targetLabel = revealLogLabel(targetURL.path)
 
     var resolvedIsDir: ObjCBool = false
     guard fm.fileExists(atPath: targetURL.path, isDirectory: &resolvedIsDir) else {
       NSLog(
         "macos/Runner/MainFlutterWindow.swift#reveal: resolved path missing path=%@",
-        targetURL.path)
+        targetLabel)
       result(
         FlutterError(
           code: "not_found", message: "resolved path does not exist", details: targetURL.path))
@@ -50,7 +58,7 @@ private func registerRevealInFinderChannel(_ messenger: FlutterBinaryMessenger) 
     }
     NSLog(
       "macos/Runner/MainFlutterWindow.swift#reveal: resolved path=%@ isDir=%@",
-      targetURL.path,
+      targetLabel,
       resolvedIsDir.boolValue.description)
 
     let ok: Bool
@@ -59,14 +67,14 @@ private func registerRevealInFinderChannel(_ messenger: FlutterBinaryMessenger) 
       NSLog(
         "macos/Runner/MainFlutterWindow.swift#reveal: NSWorkspace.open ok=%@ path=%@",
         ok.description,
-        targetURL.path)
+        targetLabel)
     } else {
       // 与「在 Finder 中显示」同语义；新版 SDK 上为 Void，无法据返回值判断，失败时由 Dart 回退 `open -R`。
       NSWorkspace.shared.activateFileViewerSelecting([targetURL])
       ok = true
       NSLog(
         "macos/Runner/MainFlutterWindow.swift#reveal: activateFileViewerSelecting path=%@",
-        targetURL.path)
+        targetLabel)
     }
     result(ok)
   }

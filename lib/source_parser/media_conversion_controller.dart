@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 
 import 'download_history_store.dart';
 import 'download_queue_controller.dart' show ProcessStarter, DownloadException;
+import 'path_log_label.dart';
 
 typedef ConversionHistoryRecorder =
     Future<void> Function(DownloadHistoryRecord record);
@@ -168,7 +169,7 @@ class MediaConversionController extends ChangeNotifier {
     try {
       task.clearLogs();
       task.addLog(
-        'lib/source_parser/media_conversion_controller.dart#_convert: start input=${task.inputRecord.filePath}',
+        'lib/source_parser/media_conversion_controller.dart#_convert: start input=${pathLogLabel(task.inputRecord.filePath)}',
       );
       task.status = MediaConversionStatus.converting;
       task.errorMessage = null;
@@ -180,7 +181,9 @@ class MediaConversionController extends ChangeNotifier {
 
       final inputFile = File(task.inputRecord.filePath);
       if (!await inputFile.exists()) {
-        throw DownloadException('待转换文件不存在：${task.inputRecord.filePath}');
+        throw DownloadException(
+          '待转换文件不存在：${pathLogLabel(task.inputRecord.filePath)}',
+        );
       }
       if (!task.inputRecord.isM3u8) {
         throw const DownloadException('当前仅支持 m3u8 转 MP4');
@@ -190,10 +193,13 @@ class MediaConversionController extends ChangeNotifier {
       outputFile = await _uniqueFile(outputDirectory, task.outputFileName);
       task.outputFilePath = outputFile.path;
       task.addLog(
-        'lib/source_parser/media_conversion_controller.dart#_convert: output=${outputFile.path}',
+        'lib/source_parser/media_conversion_controller.dart#_convert: output=${pathLogLabel(outputFile.path)}',
       );
 
-      final process = await _startFfmpegProcess(inputFile.path, outputFile.path);
+      final process = await _startFfmpegProcess(
+        inputFile.path,
+        outputFile.path,
+      );
       _activeProcess = process;
       if (_cancelRequestedTaskIds.contains(task.id)) {
         process.kill(ProcessSignal.sigterm);

@@ -9,6 +9,7 @@ import 'download_history_store.dart';
 import 'download_settings.dart';
 import 'download_engines/x_download_engine.dart';
 import 'download_engines/youtube_download_engine.dart';
+import 'path_log_label.dart';
 import 'reveal_in_finder_macos.dart';
 import 'source_resource.dart';
 import 'ios/ios_media_bridge.dart';
@@ -282,35 +283,37 @@ class DownloadQueueController extends ChangeNotifier {
       throw const DownloadException('下载完成后才能打开文件夹');
     }
     if (!await File(filePath).exists()) {
-      throw DownloadException('下载文件不存在，可能已被移动或删除：$filePath');
+      throw DownloadException('下载文件不存在，可能已被移动或删除：${pathLogLabel(filePath)}');
     }
     final directoryPath = _containingDirectoryPathFor(filePath);
+    final fileLabel = pathLogLabel(filePath);
+    final directoryLabel = pathLogLabel(directoryPath);
     task.addLog(
       'lib/source_parser/download_queue_controller.dart#openDownloadedFolder: '
-      'request file=$filePath directory=$directoryPath',
+      'request file=$fileLabel directory=$directoryLabel',
     );
     debugPrint(
       'lib/source_parser/download_queue_controller.dart#openDownloadedFolder: '
-      'request file=$filePath directory=$directoryPath',
+      'request file=$fileLabel directory=$directoryLabel',
     );
     try {
       await _folderOpener(filePath);
       task.addLog(
         'lib/source_parser/download_queue_controller.dart#openDownloadedFolder: '
-        'success file=$filePath directory=$directoryPath',
+        'success file=$fileLabel directory=$directoryLabel',
       );
       debugPrint(
         'lib/source_parser/download_queue_controller.dart#openDownloadedFolder: '
-        'success file=$filePath directory=$directoryPath',
+        'success file=$fileLabel directory=$directoryLabel',
       );
     } on Object catch (error) {
       task.addLog(
         'lib/source_parser/download_queue_controller.dart#openDownloadedFolder: '
-        'failed directory=$directoryPath error=$error',
+        'failed file=$fileLabel directory=$directoryLabel error=$error',
       );
       debugPrint(
         'lib/source_parser/download_queue_controller.dart#openDownloadedFolder: '
-        'failed directory=$directoryPath error=$error',
+        'failed file=$fileLabel directory=$directoryLabel error=$error',
       );
       rethrow;
     }
@@ -319,23 +322,27 @@ class DownloadQueueController extends ChangeNotifier {
   Future<void> openHistoryFolder(DownloadHistoryRecord record) async {
     final file = File(record.filePath);
     if (!await file.exists()) {
-      throw DownloadException('历史文件不存在，可能已被移动或删除：${record.filePath}');
+      throw DownloadException(
+        '历史文件不存在，可能已被移动或删除：${pathLogLabel(record.filePath)}',
+      );
     }
     final directoryPath = _containingDirectoryPathFor(record.filePath);
+    final fileLabel = pathLogLabel(record.filePath);
+    final directoryLabel = pathLogLabel(directoryPath);
     debugPrint(
       'lib/source_parser/download_queue_controller.dart#openHistoryFolder: '
-      'request file=${record.filePath} directory=$directoryPath',
+      'request file=$fileLabel directory=$directoryLabel',
     );
     try {
       await _folderOpener(record.filePath);
       debugPrint(
         'lib/source_parser/download_queue_controller.dart#openHistoryFolder: '
-        'success file=${record.filePath} directory=$directoryPath',
+        'success file=$fileLabel directory=$directoryLabel',
       );
     } on Object catch (error) {
       debugPrint(
         'lib/source_parser/download_queue_controller.dart#openHistoryFolder: '
-        'failed directory=$directoryPath error=$error',
+        'failed file=$fileLabel directory=$directoryLabel error=$error',
       );
       rethrow;
     }
@@ -398,7 +405,7 @@ class DownloadQueueController extends ChangeNotifier {
       final directory =
           _selectedDirectory ?? await _downloadDirectoryResolver();
       task.addLog(
-        'lib/source_parser/download_queue_controller.dart#_download: directory=${directory.path}',
+        'lib/source_parser/download_queue_controller.dart#_download: directory=${pathLogLabel(directory.path)}',
       );
       await directory.create(recursive: true);
 
@@ -428,7 +435,7 @@ class DownloadQueueController extends ChangeNotifier {
       task.statusDetail = null;
       task.activeStartedAt = null;
       task.addLog(
-        'lib/source_parser/download_queue_controller.dart#_download: completed file=${task.filePath ?? '-'}',
+        'lib/source_parser/download_queue_controller.dart#_download: completed file=${pathLogLabel(task.filePath ?? '-')}',
       );
       await _recordCompletedDownload(task);
       notifyListeners();
@@ -466,7 +473,7 @@ class DownloadQueueController extends ChangeNotifier {
       throw const DownloadException('下载未生成输出文件');
     }
     if (!await outputFile.exists()) {
-      throw DownloadException('下载输出文件不存在：${outputFile.path}');
+      throw DownloadException('下载输出文件不存在：${pathLogLabel(outputFile.path)}');
     }
     final fileSize = await outputFile.length();
     task.filePath = outputFile.path;
@@ -474,7 +481,7 @@ class DownloadQueueController extends ChangeNotifier {
     task.receivedBytes = fileSize;
     task.addLog(
       'lib/source_parser/download_queue_controller.dart#_validateDownloadedFile: '
-      'file=${outputFile.path} size=$fileSize',
+      'file=${pathLogLabel(outputFile.path)} size=$fileSize',
     );
     if (fileSize <= 0) {
       final emptyFileMessage = switch (task.resource.platform) {
@@ -772,21 +779,22 @@ class DownloadQueueController extends ChangeNotifier {
     final entityType = FileSystemEntity.typeSync(path);
     if (entityType == FileSystemEntityType.notFound) {
       throw DownloadException(
-        'lib/source_parser/download_queue_controller.dart#_defaultFolderOpener: 路径不存在：$path',
+        'lib/source_parser/download_queue_controller.dart#_defaultFolderOpener: 路径不存在：${pathLogLabel(path)}',
       );
     }
 
     final absolutePath = _absolutePathForOpen(path, entityType);
+    final pathLabel = pathLogLabel(absolutePath);
     debugPrint(
       'lib/source_parser/download_queue_controller.dart#_defaultFolderOpener: '
-      'platform=${Platform.operatingSystem} input=$path entityType=$entityType path=$absolutePath',
+      'platform=${Platform.operatingSystem} entityType=$entityType path=$pathLabel',
     );
 
     if (Platform.isMacOS) {
       final revealed = await tryRevealPathWithNsWorkspace(absolutePath);
       debugPrint(
         'lib/source_parser/download_queue_controller.dart#_defaultFolderOpener: '
-        'nsWorkspaceResult=$revealed path=$absolutePath',
+        'nsWorkspaceResult=$revealed path=$pathLabel',
       );
       if (revealed) {
         return;
@@ -794,7 +802,7 @@ class DownloadQueueController extends ChangeNotifier {
 
       debugPrint(
         'lib/source_parser/download_queue_controller.dart#_defaultFolderOpener: '
-        'NSWorkspace 打开失败，回退 /usr/bin/open path=$absolutePath',
+        'NSWorkspace 打开失败，回退 /usr/bin/open path=$pathLabel',
       );
       final result = await Process.run(
         '/usr/bin/open',

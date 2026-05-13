@@ -8,6 +8,7 @@ import '../download_queue_controller.dart'
     show DownloadCanceledException, DownloadException, DownloadTask;
 import '../download_settings.dart';
 import '../x_login_bridge.dart';
+import '../path_log_label.dart';
 import 'download_engine.dart';
 
 class XDownloadEngine extends DownloadEngine {
@@ -401,7 +402,7 @@ class XDownloadEngine extends DownloadEngine {
     task.totalBytes = null;
     task.addLog(
       'lib/source_parser/download_engines/x_download_engine.dart#_preparePlan: '
-      'workspace=${workspaceDirectory.path} target=${task.fileName}',
+      'workspace=${pathLogLabel(workspaceDirectory.path)} target=${task.fileName}',
     );
     return _XYtDlpPlan(
       targetDirectory: directory,
@@ -498,7 +499,7 @@ class XDownloadEngine extends DownloadEngine {
     if (mediaFiles.isEmpty) {
       task.addLog(
         'lib/source_parser/download_engines/x_download_engine.dart#_pickStagedDownloadedFile: '
-        'empty_workspace workspace=${workspaceDirectory.path} files=${workspaceFiles.map((file) => file.path).join(" | ")}',
+        'empty_workspace workspace=${pathLogLabel(workspaceDirectory.path)} files=${workspaceFiles.map((file) => pathLogLabel(file.path)).join(" | ")}',
       );
       throw const DownloadException('yt-dlp 已执行成功，但当前 X 任务工作区没有找到下载结果');
     }
