@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'download_history_store.dart';
 import 'download_settings.dart';
+import 'download_engines/x_download_engine.dart';
 import 'download_engines/youtube_download_engine.dart';
 import 'reveal_in_finder_macos.dart';
 import 'source_resource.dart';
@@ -404,6 +405,11 @@ class DownloadQueueController extends ChangeNotifier {
           'lib/source_parser/download_queue_controller.dart#_download: engine=youtube',
         );
         outputFile = await _downloadYouTube(task, directory);
+      } else if (task.resource.requiresYtDlp) {
+        task.addLog(
+          'lib/source_parser/download_queue_controller.dart#_download: engine=x_yt_dlp',
+        );
+        outputFile = await _downloadX(task, directory);
       } else {
         task.addLog(
           'lib/source_parser/download_queue_controller.dart#_download: engine=http',
@@ -466,9 +472,13 @@ class DownloadQueueController extends ChangeNotifier {
       'file=${outputFile.path} size=$fileSize',
     );
     if (fileSize <= 0) {
-      throw const DownloadException(
-        '下载结果为空文件，已判定为失败；请重试，或对 YouTube 资源开启 yt-dlp 兜底',
-      );
+      final emptyFileMessage = switch (task.resource.platform) {
+        SourcePlatform.youtube =>
+          '下载结果为空文件，已判定为失败；请重试，或检查 yt-dlp / YouTube 下载设置',
+        SourcePlatform.x => '下载结果为空文件，已判定为失败；请确认该推文包含视频且当前可公开访问后重试',
+        _ => '下载结果为空文件，已判定为失败；请重试',
+      };
+      throw DownloadException(emptyFileMessage);
     }
   }
 
@@ -680,6 +690,19 @@ class DownloadQueueController extends ChangeNotifier {
 
   Future<File> _downloadYouTube(DownloadTask task, Directory directory) async {
     final engine = YouTubeDownloadEngine(httpClient: _client);
+    return engine.download(
+      task: task,
+      directory: directory,
+      settings: _settings,
+      processRunner: _processRunner,
+      processStarter: _processStarter,
+      isCancelRequested: () => _cancelRequestedTaskIds.contains(task.id),
+      onProgressUpdated: notifyListeners,
+    );
+  }
+
+  Future<File> _downloadX(DownloadTask task, Directory directory) async {
+    const engine = XDownloadEngine();
     return engine.download(
       task: task,
       directory: directory,

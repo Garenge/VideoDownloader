@@ -95,9 +95,9 @@ class DownloadSettingsPanel extends StatelessWidget {
         Text(
           downloadSettings.enableYtDlpFallback
               ? downloadSettings.preferYtDlpForYouTube
-                    ? 'YouTube 下载：yt-dlp 优先'
-                    : 'YouTube 下载：应用内优先，yt-dlp 兜底'
-              : 'YouTube 下载：仅应用内',
+                    ? 'X 下载：yt-dlp 必需；YouTube：yt-dlp 优先'
+                    : 'X 下载：yt-dlp 必需；YouTube：应用内优先，yt-dlp 兜底'
+              : 'X 下载：yt-dlp 必需；YouTube：仅应用内',
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: Theme.of(

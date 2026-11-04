@@ -4,11 +4,13 @@ import 'dart:math' as math;
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'download_activity_overlay.dart';
 import 'download_history_store.dart';
+import 'incoming_link_bridge.dart';
 import 'download_settings.dart';
 import 'download_settings_sheet.dart';
 import 'download_settings_store.dart';
@@ -24,6 +26,7 @@ import 'resource_http_client_scope.dart';
 import 'resource_thumbnail_image.dart';
 import 'source_parser_service.dart';
 import 'source_resource.dart';
+import 'x_login_bridge.dart';
 
 part 'source_parser_resource_widgets.dart';
 
@@ -35,7 +38,51 @@ class _ToolProbeResult {
   final String? errorMessage;
 }
 
+class _IncomingBannerState {
+  const _IncomingBannerState({required this.event, required this.receivedAt});
+
+  final IncomingLinkEvent event;
+  final DateTime receivedAt;
+
+  String get label {
+    switch (event.origin) {
+      case 'share_extension':
+        return '来自 iOS 分享';
+      case 'direct_open':
+        return '来自外部链接';
+      default:
+        return '来自外部唤起';
+    }
+  }
+}
+
+enum _HeaderMenuAction {
+  xLogin,
+  xLogout,
+  downloadSettings,
+  selectDownloadDirectory,
+  resetDownloadDirectory,
+}
+
 typedef ExternalBrowserOpener = Future<void> Function(String url);
+typedef XVideoPreflightProbe =
+    Future<XVideoPreflightResult> Function(SourceResource resource);
+
+class XVideoPreflightResult {
+  const XVideoPreflightResult({required this.errorMessage, this.debugLog});
+
+  final String? errorMessage;
+  final String? debugLog;
+
+  bool get ok => errorMessage == null;
+}
+
+final class _XPreflightAttempt {
+  const _XPreflightAttempt({required this.label, required this.args});
+
+  final String label;
+  final List<String> args;
+}
 
 Future<void> _defaultExternalBrowserOpener(String url) async {
   final trimmed = url.trim();
@@ -55,10 +102,7 @@ Future<void> _defaultExternalBrowserOpener(String url) async {
     return;
   }
 
-  final launched = await launchUrl(
-    uri,
-    mode: LaunchMode.externalApplication,
-  );
+  final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
   if (!launched) {
     debugPrint(
       'lib/source_parser/source_parser_home_page.dart#_defaultExternalBrowserOpener: '
@@ -86,12 +130,7 @@ Future<void> _launchHttpUrlViaDesktopShell(String launchTarget) async {
   }
 
   if (Platform.isWindows) {
-    final result = await Process.run('cmd', [
-      '/c',
-      'start',
-      '',
-      launchTarget,
-    ]);
+    final result = await Process.run('cmd', ['/c', 'start', '', launchTarget]);
     if (result.exitCode != 0) {
       debugPrint(
         'lib/source_parser/source_parser_home_page.dart#_launchHttpUrlViaDesktopShell: '
@@ -128,6 +167,8 @@ class SourceParserHomePage extends StatefulWidget {
     this.downloadHistoryStore,
     this.proxySettingsStore,
     this.externalBrowserOpener,
+    this.xVideoPreflightProbe,
+    this.incomingLinkListenable,
   });
 
   final SourceParserService? parserService;
@@ -135,6 +176,8 @@ class SourceParserHomePage extends StatefulWidget {
   final DownloadHistoryStore? downloadHistoryStore;
   final ProxySettingsStore? proxySettingsStore;
   final ExternalBrowserOpener? externalBrowserOpener;
+  final XVideoPreflightProbe? xVideoPreflightProbe;
+  final ValueListenable<IncomingLinkEvent?>? incomingLinkListenable;
 
   @override
   State<SourceParserHomePage> createState() => _SourceParserHomePageState();
@@ -159,6 +202,12 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
   bool _downloadSettingsReady = false;
   bool _downloadToolStatusReady = false;
   bool _hasShownStartupToolWarning = false;
+  bool _hasCheckedStartupXLogin = false;
+  bool _xAuthenticated = false;
+  bool _xAccountStatusLoaded = false;
+  String? _xAccountHandle;
+  String? _xDisplayName;
+  final Set<String> _resolvingResourceUrls = <String>{};
 
   SourceParseResult? _result;
   List<String> _recentUrls = [];
@@ -169,15 +218,22 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
   DateTime? _parseStartedAt;
   Timer? _parseElapsedTicker;
   bool _downloadPanelOpen = false;
+  String? _pendingIncomingUrl;
+  int _lastHandledIncomingLinkSequence = 0;
+  ValueListenable<IncomingLinkEvent?>? _attachedIncomingLinkListenable;
+  _IncomingBannerState? _incomingBannerState;
+  final List<String> _incomingShareLogLines = <String>[];
 
   @override
   void initState() {
     super.initState();
     _resourceTypeTabController = TabController(length: 4, vsync: this);
     _parseHistoryStore = widget.parseHistoryStore ?? ParseHistoryStore();
-    _downloadHistoryStore = widget.downloadHistoryStore ?? DownloadHistoryStore();
+    _downloadHistoryStore =
+        widget.downloadHistoryStore ?? DownloadHistoryStore();
     _resourceSearchController.addListener(_handleResourceSearchChanged);
     _downloadSettingsStore = DownloadSettingsStore();
+    unawaited(_refreshXAccountStatus());
     unawaited(_loadDownloadSettings());
     unawaited(_refreshDownloadToolStatus());
 
@@ -198,6 +254,18 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
     }
 
     _loadRecentUrls();
+    _attachIncomingLinkListenable();
+  }
+
+  @override
+  void didUpdateWidget(covariant SourceParserHomePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.incomingLinkListenable == widget.incomingLinkListenable) {
+      return;
+    }
+
+    _detachIncomingLinkListenable();
+    _attachIncomingLinkListenable();
   }
 
   Future<void> _bootstrapOwnedNetworkClients() async {
@@ -227,6 +295,7 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
       _savedProxySpec = spec;
       _networkReady = true;
     });
+    unawaited(_consumePendingIncomingUrlIfNeeded());
   }
 
   Future<void> _loadDownloadSettings() async {
@@ -287,7 +356,6 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
 
     final shouldWarnBlocked = _downloadToolStatus.externalCommandBlocked;
     final shouldWarnMissingYtDlp =
-        _downloadSettings.enableYtDlpFallback &&
         !_downloadToolStatus.ytDlpAvailable &&
         !_downloadToolStatus.externalCommandBlocked;
     final shouldWarnMissingFfmpeg = !_downloadToolStatus.ffmpegAvailable;
@@ -295,6 +363,7 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
     if (!shouldWarnBlocked &&
         !shouldWarnMissingYtDlp &&
         !shouldWarnMissingFfmpeg) {
+      _scheduleStartupXLoginPrompt();
       return;
     }
 
@@ -306,8 +375,9 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
 
       final messages = <String>[
         if (shouldWarnBlocked)
-          '检测到当前运行环境禁止执行外部命令（可能是 macOS 沙箱限制），yt-dlp 兜底不可用。',
-        if (shouldWarnMissingYtDlp) '未检测到 yt-dlp，YouTube 兜底下载不可用。',
+          '检测到当前运行环境禁止执行外部命令（可能是 macOS 沙箱限制），X 下载与 yt-dlp 相关流程不可用。',
+        if (shouldWarnMissingYtDlp)
+          '未检测到 yt-dlp，X 下载不可用，YouTube 的 yt-dlp 流程也不可用。',
         if (shouldWarnMissingFfmpeg) '未检测到 ffmpeg，部分音视频合并/转封装可能失败。',
       ];
 
@@ -333,8 +403,92 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
             ],
           );
         },
-      );
+      ).then((_) => _scheduleStartupXLoginPrompt());
     });
+  }
+
+  void _scheduleStartupXLoginPrompt() {
+    if (!Platform.isMacOS || _hasCheckedStartupXLogin) {
+      return;
+    }
+    _hasCheckedStartupXLogin = true;
+    unawaited(_showStartupXLoginPrompt());
+  }
+
+  Future<void> _showStartupXLoginPrompt() async {
+    final authenticated = await _refreshXAccountStatus();
+    if (authenticated != false || !mounted) {
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('登录 X'),
+        content: const Text('部分 X 视频需要登录后才能解析和下载。建议现在登录，也可以稍后再登录。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('稍后'),
+          ),
+          FilledButton.icon(
+            onPressed: () {
+              Navigator.of(dialogContext).pop();
+              unawaited(_openXLogin());
+            },
+            icon: const Icon(Icons.login),
+            label: const Text('登录 X'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openXLogin() async {
+    try {
+      final authenticated = await XLoginBridge.openLogin();
+      await _refreshXAccountStatus();
+      if (!mounted || authenticated) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('未检测到 X 登录状态，请完成登录后重试')));
+    } on Object catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('X 登录流程失败：$error')));
+    }
+  }
+
+  Future<bool?> _refreshXAccountStatus() async {
+    final status = await XLoginBridge.accountStatus();
+    if (!mounted || status == null) {
+      return null;
+    }
+    setState(() {
+      _xAuthenticated = status['authenticated'] == true;
+      _xAccountHandle = status['handle'] as String?;
+      _xDisplayName = status['displayName'] as String?;
+      _xAccountStatusLoaded = true;
+    });
+    return _xAuthenticated;
+  }
+
+  Future<void> _logoutX() async {
+    try {
+      await XLoginBridge.logout();
+      await _refreshXAccountStatus();
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('已退出 App 内的 X 账号')));
+    } on Object catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('退出 X 登录失败：$error')));
+    }
   }
 
   Future<_ToolProbeResult> _probeTool(
@@ -425,6 +579,7 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
   @override
   void dispose() {
     _parseElapsedTicker?.cancel();
+    _detachIncomingLinkListenable();
     _urlController.dispose();
     _resourceSearchController.dispose();
     if (widget.parserService == null) {
@@ -434,6 +589,119 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
     _mediaConversionController?.dispose();
     _resourceTypeTabController.dispose();
     super.dispose();
+  }
+
+  void _attachIncomingLinkListenable() {
+    final listenable = widget.incomingLinkListenable;
+    if (listenable == null) {
+      return;
+    }
+
+    _attachedIncomingLinkListenable = listenable;
+    listenable.addListener(_handleIncomingLinkChanged);
+    _handleIncomingLinkChanged();
+  }
+
+  void _detachIncomingLinkListenable() {
+    _attachedIncomingLinkListenable?.removeListener(_handleIncomingLinkChanged);
+    _attachedIncomingLinkListenable = null;
+  }
+
+  void _handleIncomingLinkChanged() {
+    final event = _attachedIncomingLinkListenable?.value;
+    if (event == null || event.sequence <= _lastHandledIncomingLinkSequence) {
+      return;
+    }
+
+    _lastHandledIncomingLinkSequence = event.sequence;
+    _recordIncomingEvent(event);
+    unawaited(_applyIncomingUrl(event));
+  }
+
+  void _recordIncomingEvent(IncomingLinkEvent event) {
+    final bannerState = _IncomingBannerState(
+      event: event,
+      receivedAt: DateTime.now(),
+    );
+    if (mounted) {
+      setState(() {
+        _incomingBannerState = bannerState;
+      });
+    } else {
+      _incomingBannerState = bannerState;
+    }
+
+    _appendIncomingShareLog(
+      '收到外部链接 source=${event.source} origin=${event.origin} url=${event.url}',
+    );
+    final nativeDebugLog = event.debugLog?.trim();
+    if (nativeDebugLog != null && nativeDebugLog.isNotEmpty) {
+      for (final line in nativeDebugLog.split('\n')) {
+        _appendIncomingShareLog('native> $line');
+      }
+    }
+  }
+
+  Future<void> _applyIncomingUrl(IncomingLinkEvent event) async {
+    final normalizedUrl = event.url.trim();
+    if (normalizedUrl.isEmpty) {
+      return;
+    }
+
+    _urlController.text = normalizedUrl;
+    if (!_networkReady || _parserService == null || _isParsing) {
+      _pendingIncomingUrl = normalizedUrl;
+      if (mounted) {
+        setState(() {
+          _errorText = null;
+        });
+      }
+      _appendIncomingShareLog(
+        '延迟处理外部链接 origin=${event.origin} networkReady=$_networkReady isParsing=$_isParsing',
+      );
+      debugPrint(
+        'lib/source_parser/source_parser_home_page.dart#_applyIncomingUrl: '
+        'queued source=${event.source} origin=${event.origin} networkReady=$_networkReady isParsing=$_isParsing '
+        'url=$normalizedUrl',
+      );
+      return;
+    }
+
+    _pendingIncomingUrl = null;
+    if (mounted) {
+      setState(() {
+        _errorText = null;
+      });
+    }
+    debugPrint(
+      'lib/source_parser/source_parser_home_page.dart#_applyIncomingUrl: '
+      'parsing source=${event.source} origin=${event.origin} url=$normalizedUrl',
+    );
+    _appendIncomingShareLog('开始自动解析外部链接 url=$normalizedUrl');
+    await _handleParse();
+  }
+
+  Future<void> _consumePendingIncomingUrlIfNeeded() async {
+    final pendingUrl = _pendingIncomingUrl;
+    if (pendingUrl == null || !_networkReady || _parserService == null) {
+      return;
+    }
+    if (_isParsing) {
+      return;
+    }
+
+    debugPrint(
+      'lib/source_parser/source_parser_home_page.dart#_consumePendingIncomingUrlIfNeeded: '
+      'resuming url=$pendingUrl',
+    );
+    await _applyIncomingUrl(
+      IncomingLinkEvent(
+        sequence: _lastHandledIncomingLinkSequence,
+        url: pendingUrl,
+        source: 'pending',
+        origin: _incomingBannerState?.event.origin ?? 'unknown',
+      ),
+    );
   }
 
   Future<void> _openProxySettings() async {
@@ -463,6 +731,21 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
     setState(() {});
   }
 
+  void _handleHeaderMenuAction(_HeaderMenuAction action) {
+    switch (action) {
+      case _HeaderMenuAction.xLogin:
+        unawaited(_openXLogin());
+      case _HeaderMenuAction.xLogout:
+        unawaited(_logoutX());
+      case _HeaderMenuAction.downloadSettings:
+        unawaited(_openDownloadSettings());
+      case _HeaderMenuAction.selectDownloadDirectory:
+        unawaited(_handleSelectDownloadDirectory());
+      case _HeaderMenuAction.resetDownloadDirectory:
+        _handleResetDownloadDirectory();
+    }
+  }
+
   Future<void> _loadRecentUrls() async {
     final urls = await _parseHistoryStore.load();
     if (!mounted) {
@@ -475,8 +758,12 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
   }
 
   Future<void> _handleParse() async {
-    final error = _parserService!.validate(_urlController.text);
+    final parseUrl = _urlController.text.trim();
+    final error = _parserService!.validate(parseUrl);
     if (error != null) {
+      _appendParseResultToIncomingShareLogs(
+        '解析前校验失败 url=$parseUrl message=$error',
+      );
       setState(() {
         _errorText = error;
       });
@@ -492,9 +779,10 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
       _parseStartedAt = DateTime.now();
     });
     _startParseElapsedTicker();
+    _appendParseResultToIncomingShareLogs('解析开始 url=$parseUrl');
 
     try {
-      final result = await _parserService!.parse(_urlController.text);
+      final result = await _parserService!.parse(parseUrl);
       if (!mounted) {
         return;
       }
@@ -504,12 +792,18 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
       });
       _resourceTypeTabController.index = 0;
       _logParseResult(result);
+      _appendParseResultToIncomingShareLogs(
+        '解析成功 platform=${result.platform.label} total=${result.resources.length} url=${result.originalUrl}',
+      );
       await _saveParsedUrl(result.originalUrl);
     } on SourceParserException catch (error) {
       if (!mounted) {
         return;
       }
 
+      _appendParseResultToIncomingShareLogs(
+        '解析失败 url=$parseUrl message=${error.message}',
+      );
       setState(() {
         _errorText = error.message;
         _result = null;
@@ -522,7 +816,105 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
           _parseStartedAt = null;
         });
       }
+      await _consumePendingIncomingUrlIfNeeded();
     }
+  }
+
+  void _appendIncomingShareLog(String message) {
+    final timestamp = DateTime.now();
+    final line = '[${_formatClockTime(timestamp)}] $message';
+    debugPrint(
+      'lib/source_parser/source_parser_home_page.dart#_appendIncomingShareLog: '
+      '$message',
+    );
+    _incomingShareLogLines.add(line);
+    if (_incomingShareLogLines.length > 80) {
+      _incomingShareLogLines.removeRange(0, _incomingShareLogLines.length - 80);
+    }
+  }
+
+  void _appendParseResultToIncomingShareLogs(String message) {
+    final bannerState = _incomingBannerState;
+    if (bannerState == null) {
+      return;
+    }
+    final currentUrl = _urlController.text.trim();
+    if (currentUrl != bannerState.event.url.trim()) {
+      return;
+    }
+    _appendIncomingShareLog(message);
+  }
+
+  String _formatClockTime(DateTime value) {
+    final hour = value.hour.toString().padLeft(2, '0');
+    final minute = value.minute.toString().padLeft(2, '0');
+    final second = value.second.toString().padLeft(2, '0');
+    return '$hour:$minute:$second';
+  }
+
+  void _dismissIncomingBanner() {
+    setState(() {
+      _incomingBannerState = null;
+    });
+  }
+
+  Future<void> _showIncomingShareLogsDialog() async {
+    final text = _buildIncomingShareLogText();
+    if (text == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('当前还没有可复制的分享接入日志')));
+      return;
+    }
+
+    debugPrint(text);
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('分享接入日志'),
+          content: SizedBox(
+            width: 560,
+            child: SingleChildScrollView(child: SelectableText(text)),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('关闭'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: text));
+                if (!mounted) {
+                  return;
+                }
+                Navigator.of(dialogContext).pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('分享接入日志已复制，可直接粘贴给我')),
+                );
+              },
+              child: const Text('复制日志'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  String? _buildIncomingShareLogText() {
+    if (_incomingShareLogLines.isEmpty) {
+      return null;
+    }
+    final bannerState = _incomingBannerState;
+    return [
+      '[Share Intake Debug Log]',
+      if (bannerState != null) 'label=${bannerState.label}',
+      if (bannerState != null) 'origin=${bannerState.event.origin}',
+      if (bannerState != null) 'source=${bannerState.event.source}',
+      if (bannerState != null) 'url=${bannerState.event.url}',
+      '---',
+      ..._incomingShareLogLines,
+    ].join('\n');
   }
 
   void _startParseElapsedTicker() {
@@ -637,6 +1029,26 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
   }
 
   Future<void> _handleDownload(SourceResource resource) async {
+    if (_resolvingResourceUrls.contains(resource.url)) {
+      return;
+    }
+    setState(() => _resolvingResourceUrls.add(resource.url));
+    late final XVideoPreflightResult preflightResult;
+    try {
+      preflightResult = await _maybeProbeXVideoBeforeDownload(resource);
+    } finally {
+      if (mounted) {
+        setState(() => _resolvingResourceUrls.remove(resource.url));
+      }
+    }
+
+    if (!mounted) {
+      return;
+    }
+    if (!preflightResult.ok) {
+      await _showXPreflightFailureDialog(resource, preflightResult);
+      return;
+    }
     if (resource.requiresFfmpegPostProcess) {
       final confirmed = await _showDownloadPreparationPrompt(resource);
       if (confirmed != true || !mounted) {
@@ -654,6 +1066,336 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text('已加入下载队列：${task.fileName}')));
+  }
+
+  Future<XVideoPreflightResult> _maybeProbeXVideoBeforeDownload(
+    SourceResource resource,
+  ) async {
+    if (!resource.requiresYtDlp || resource.platform != SourcePlatform.x) {
+      return const XVideoPreflightResult(errorMessage: null);
+    }
+
+    final probe = widget.xVideoPreflightProbe ?? _defaultXVideoPreflightProbe;
+    return probe(resource);
+  }
+
+  Future<XVideoPreflightResult> _defaultXVideoPreflightProbe(
+    SourceResource resource,
+  ) async {
+    if (Platform.isMacOS) {
+      try {
+        final result = await XLoginBridge.withCookieFile(
+          (cookieFilePath) =>
+              _runXVideoPreflight(resource, appCookieFilePath: cookieFilePath),
+        );
+        if (result != null) {
+          return result;
+        }
+      } on PlatformException catch (error) {
+        debugPrint(
+          'lib/source_parser/source_parser_home_page.dart#_defaultXVideoPreflightProbe: '
+          'app login session unavailable error=${error.code}',
+        );
+      } on MissingPluginException {
+        // Unit tests and non-macOS hosts do not register the native login bridge.
+      }
+    }
+    return _runXVideoPreflight(resource);
+  }
+
+  Future<XVideoPreflightResult> _runXVideoPreflight(
+    SourceResource resource, {
+    String? appCookieFilePath,
+  }) async {
+    final attempts = _buildXPreflightAttempts(
+      resource,
+      appCookieFilePath: appCookieFilePath,
+    );
+    final logs = <String>[];
+    XVideoPreflightResult? lastFailure;
+
+    for (final attempt in attempts) {
+      try {
+        final result = await Process.run(
+          _findExistingExecutablePath(_probeExecutableCandidates('yt-dlp')) ??
+              'yt-dlp',
+          attempt.args,
+        );
+        final err = (result.stderr ?? '').toString().trim();
+        final out = (result.stdout ?? '').toString().trim();
+        logs.add(
+          _buildXPreflightDebugLog(
+            resource: resource,
+            label: attempt.label,
+            args: attempt.args,
+            exitCode: result.exitCode,
+            stdoutText: out,
+            stderrText: err,
+          ),
+        );
+        if (result.exitCode == 0) {
+          return XVideoPreflightResult(
+            errorMessage: null,
+            debugLog: logs.join('\n\n'),
+          );
+        }
+
+        final detail = err.isNotEmpty ? err : out;
+        lastFailure = XVideoPreflightResult(
+          errorMessage: _friendlyXPreflightError(detail, result.exitCode),
+          debugLog: logs.join('\n\n'),
+        );
+      } on ProcessException catch (error) {
+        final detail = error.message;
+        logs.add(
+          _buildXPreflightDebugLog(
+            resource: resource,
+            label: attempt.label,
+            args: attempt.args,
+            processError: error.toString(),
+          ),
+        );
+        if (detail.contains('Operation not permitted')) {
+          return XVideoPreflightResult(
+            errorMessage: '当前环境禁止执行外部命令，暂时无法预检 X 视频，请调整运行环境后重试',
+            debugLog: logs.join('\n\n'),
+          );
+        }
+        if (_looksLikeMissingBrowserCookies(detail)) {
+          lastFailure = XVideoPreflightResult(
+            errorMessage: '当前浏览器登录态不可用，正在尝试其他 X 预检方式',
+            debugLog: logs.join('\n\n'),
+          );
+          continue;
+        }
+        return XVideoPreflightResult(
+          errorMessage: '未检测到 yt-dlp，当前无法预检 X 视频，请先安装后重试',
+          debugLog: logs.join('\n\n'),
+        );
+      } on Object catch (error) {
+        logs.add(
+          _buildXPreflightDebugLog(
+            resource: resource,
+            label: attempt.label,
+            args: attempt.args,
+            processError: error.toString(),
+          ),
+        );
+        return XVideoPreflightResult(
+          errorMessage: '预检 X 视频时失败：$error',
+          debugLog: logs.join('\n\n'),
+        );
+      }
+    }
+
+    return lastFailure ??
+        XVideoPreflightResult(
+          errorMessage: 'X 视频预检失败：所有尝试均未成功',
+          debugLog: logs.join('\n\n'),
+        );
+  }
+
+  String _friendlyXPreflightError(String raw, int exitCode) {
+    if (raw.contains('No video could be found in this tweet')) {
+      return '这条推文当前没有检测到可下载的视频媒体，已阻止加入下载队列。可能是图片推文、纯文本推文，或公开页面未暴露视频资源。';
+    }
+    if (raw.contains('Login required') ||
+        raw.contains('Sign in to confirm') ||
+        raw.contains('requested tweet may only be available')) {
+      return '这条 X 内容可能需要登录或受可见性限制，已阻止加入下载队列。请先确认浏览器中可以正常访问。';
+    }
+    if (raw.contains('Private') || raw.contains('private')) {
+      return '这条推文可能是私密内容，已阻止加入下载队列。';
+    }
+    if (raw.contains('404') || raw.contains('not found')) {
+      return '这条推文不存在、已删除或当前不可见，已阻止加入下载队列。';
+    }
+    return 'X 视频预检失败(exit=$exitCode)：$raw';
+  }
+
+  String _buildXPreflightDebugLog({
+    required SourceResource resource,
+    String? label,
+    required List<String> args,
+    int? exitCode,
+    String? stdoutText,
+    String? stderrText,
+    String? processError,
+  }) {
+    return [
+      '[X Preflight Debug Log]',
+      'url=${resource.url}',
+      'title=${resource.title}',
+      'platform=${resource.platform.name}',
+      if (label != null) 'attempt=$label',
+      'args=yt-dlp ${args.join(' ')}',
+      if (exitCode != null) 'exitCode=$exitCode',
+      if (processError != null && processError.isNotEmpty)
+        'processError=$processError',
+      '---',
+      if (stdoutText != null && stdoutText.isNotEmpty) '[stdout]\n$stdoutText',
+      if (stderrText != null && stderrText.isNotEmpty) '[stderr]\n$stderrText',
+    ].join('\n');
+  }
+
+  List<_XPreflightAttempt> _buildXPreflightAttempts(
+    SourceResource resource, {
+    String? appCookieFilePath,
+  }) {
+    const browsers = <String>['chrome', 'edge', 'chromium', 'brave'];
+    const apis = <String>['graphql', 'syndication'];
+    final attempts = <_XPreflightAttempt>[];
+
+    if (appCookieFilePath != null) {
+      for (final api in apis) {
+        attempts.add(
+          _XPreflightAttempt(
+            label: 'app-login api:$api',
+            args: [
+              '--simulate',
+              '--no-playlist',
+              '--cookies',
+              appCookieFilePath,
+              '--extractor-args',
+              'twitter:api=$api',
+              resource.url,
+            ],
+          ),
+        );
+      }
+    }
+
+    for (final browser in browsers) {
+      for (final api in apis) {
+        attempts.add(
+          _XPreflightAttempt(
+            label: 'cookies:$browser api:$api',
+            args: [
+              '--simulate',
+              '--no-playlist',
+              '--cookies-from-browser',
+              browser,
+              '--extractor-args',
+              'twitter:api=$api',
+              resource.url,
+            ],
+          ),
+        );
+      }
+    }
+
+    for (final api in apis) {
+      attempts.add(
+        _XPreflightAttempt(
+          label: 'anonymous api:$api',
+          args: [
+            '--simulate',
+            '--no-playlist',
+            '--extractor-args',
+            'twitter:api=$api',
+            resource.url,
+          ],
+        ),
+      );
+    }
+
+    return attempts;
+  }
+
+  bool _looksLikeMissingBrowserCookies(String raw) {
+    return raw.contains('could not find chrome cookies database') ||
+        raw.contains('Could not copy Chrome cookie database') ||
+        raw.contains('browser is not supported') ||
+        raw.contains('could not find edge cookies database') ||
+        raw.contains('Failed to decrypt with DPAPI') ||
+        raw.contains('Failed to decrypt');
+  }
+
+  Future<void> _showXPreflightFailureDialog(
+    SourceResource resource,
+    XVideoPreflightResult result,
+  ) async {
+    debugPrint(
+      'lib/source_parser/source_parser_home_page.dart#_showXPreflightFailureDialog: '
+      'url=${resource.url} message=${result.errorMessage}',
+    );
+    final debugLog = result.debugLog?.trim();
+    if (debugLog != null && debugLog.isNotEmpty) {
+      debugPrint(debugLog);
+    }
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('X 视频预检失败'),
+          content: Text(result.errorMessage ?? '预检失败'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('关闭'),
+            ),
+            if (Platform.isMacOS)
+              TextButton.icon(
+                onPressed: () => _loginXAndRetry(resource, dialogContext),
+                icon: const Icon(Icons.login),
+                label: const Text('在应用内登录 X'),
+              ),
+            if (debugLog != null && debugLog.isNotEmpty)
+              FilledButton(
+                onPressed: () async {
+                  await Clipboard.setData(ClipboardData(text: debugLog));
+                  if (!mounted) {
+                    return;
+                  }
+                  Navigator.of(context).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('预检日志已复制，可直接粘贴给我')),
+                  );
+                },
+                child: const Text('复制日志'),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _loginXAndRetry(
+    SourceResource resource,
+    BuildContext dialogContext,
+  ) async {
+    Navigator.of(dialogContext).pop();
+    try {
+      final authenticated = await XLoginBridge.openLogin();
+      await _refreshXAccountStatus();
+      if (!mounted) {
+        return;
+      }
+      if (!authenticated) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('未检测到 X 登录状态，请登录后重试')));
+        return;
+      }
+
+      final result = await _maybeProbeXVideoBeforeDownload(resource);
+      if (!mounted) {
+        return;
+      }
+      if (result.ok) {
+        _enqueueDownload(resource);
+      } else {
+        await _showXPreflightFailureDialog(resource, result);
+      }
+    } on Object catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('X 登录流程失败：$error')));
+    }
   }
 
   Future<bool?> _showDownloadPreparationPrompt(SourceResource resource) {
@@ -741,8 +1483,20 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
 
   Future<void> _handleOpenDownloadedFolder(DownloadTask task) async {
     try {
+      debugPrint(
+        'lib/source_parser/source_parser_home_page.dart#_handleOpenDownloadedFolder: '
+        'click file=${task.filePath} status=${task.status.name}',
+      );
       await _downloadQueueController!.openDownloadedFolder(task);
+      debugPrint(
+        'lib/source_parser/source_parser_home_page.dart#_handleOpenDownloadedFolder: '
+        'success file=${task.filePath}',
+      );
     } on Object catch (error) {
+      debugPrint(
+        'lib/source_parser/source_parser_home_page.dart#_handleOpenDownloadedFolder: '
+        'failed file=${task.filePath} error=$error',
+      );
       if (!mounted) {
         return;
       }
@@ -755,8 +1509,20 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
 
   Future<void> _handleOpenHistoryFolder(DownloadHistoryRecord record) async {
     try {
+      debugPrint(
+        'lib/source_parser/source_parser_home_page.dart#_handleOpenHistoryFolder: '
+        'click file=${record.filePath}',
+      );
       await _downloadQueueController!.openHistoryFolder(record);
+      debugPrint(
+        'lib/source_parser/source_parser_home_page.dart#_handleOpenHistoryFolder: '
+        'success file=${record.filePath}',
+      );
     } on Object catch (error) {
+      debugPrint(
+        'lib/source_parser/source_parser_home_page.dart#_handleOpenHistoryFolder: '
+        'failed file=${record.filePath} error=$error',
+      );
       if (!mounted) {
         return;
       }
@@ -935,8 +1701,6 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
                             const SizedBox(height: 22),
                             _buildParserPanel(context),
                             const SizedBox(height: 20),
-                            _buildDownloadSettingsSection(context),
-                            const SizedBox(height: 20),
                             _buildResultSection(context),
                           ],
                         ),
@@ -1041,6 +1805,86 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
             icon: const Icon(Icons.settings_ethernet),
           ),
         ],
+        if (Platform.isMacOS)
+          PopupMenuButton<_HeaderMenuAction>(
+            key: const ValueKey('x-account-menu-button'),
+            tooltip: _xAuthenticated
+                ? 'X 已登录${_xAccountHandle == null ? '' : ' · $_xAccountHandle'}'
+                : (_xAccountStatusLoaded ? 'X 未登录' : '正在检查 X 登录状态'),
+            icon: Icon(
+              _xAuthenticated ? Icons.account_circle : Icons.person_outline,
+            ),
+            onSelected: _handleHeaderMenuAction,
+            itemBuilder: (context) => [
+              PopupMenuItem<_HeaderMenuAction>(
+                enabled: false,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(
+                    _xAuthenticated
+                        ? Icons.account_circle
+                        : Icons.person_outline,
+                  ),
+                  title: Text(
+                    _xAuthenticated
+                        ? (_xDisplayName?.isNotEmpty == true
+                              ? _xDisplayName!
+                              : 'X 已登录')
+                        : (_xAccountStatusLoaded ? 'X 未登录' : '正在检查 X 登录状态'),
+                  ),
+                  subtitle: _xAuthenticated && _xAccountHandle != null
+                      ? Text(_xAccountHandle!)
+                      : null,
+                ),
+              ),
+              PopupMenuItem<_HeaderMenuAction>(
+                value: _xAuthenticated
+                    ? _HeaderMenuAction.xLogout
+                    : _HeaderMenuAction.xLogin,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(_xAuthenticated ? Icons.logout : Icons.login),
+                  title: Text(_xAuthenticated ? '退出 X 登录' : '登录 X'),
+                ),
+              ),
+            ],
+          ),
+        PopupMenuButton<_HeaderMenuAction>(
+          key: const ValueKey('header-settings-menu-button'),
+          tooltip: '更多设置',
+          onSelected: _handleHeaderMenuAction,
+          itemBuilder: (context) {
+            final hasSelectedDirectory =
+                _downloadQueueController?.selectedDirectoryPath != null;
+            return [
+              const PopupMenuItem<_HeaderMenuAction>(
+                value: _HeaderMenuAction.downloadSettings,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.tune),
+                  title: Text('下载设置'),
+                ),
+              ),
+              const PopupMenuItem<_HeaderMenuAction>(
+                value: _HeaderMenuAction.selectDownloadDirectory,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.folder_open),
+                  title: Text('选择保存目录'),
+                ),
+              ),
+              PopupMenuItem<_HeaderMenuAction>(
+                value: _HeaderMenuAction.resetDownloadDirectory,
+                enabled: hasSelectedDirectory,
+                child: const ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.restart_alt),
+                  title: Text('重置保存目录'),
+                ),
+              ),
+            ];
+          },
+        ),
       ],
     );
   }
@@ -1053,6 +1897,10 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            if (_incomingBannerState != null) ...[
+              _buildIncomingBanner(context, _incomingBannerState!),
+              const SizedBox(height: 14),
+            ],
             TextField(
               controller: _urlController,
               decoration: InputDecoration(
@@ -1098,6 +1946,18 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
                 ),
               ],
             ),
+            if (_recentUrls.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton.icon(
+                  key: const ValueKey('open-recent-urls-button'),
+                  onPressed: _openRecentUrlHistory,
+                  icon: const Icon(Icons.history),
+                  label: Text('最近解析 (${_recentUrls.length})'),
+                ),
+              ),
+            ],
             if (_isParsing) ...[
               const SizedBox(height: 14),
               ClipRRect(
@@ -1127,53 +1987,136 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
                 ),
               ],
             ],
-            if (_recentUrls.isNotEmpty) ...[
-              const SizedBox(height: 14),
-              _buildRecentUrlHistory(context),
-            ],
           ],
         ),
       ),
     );
   }
 
-  Widget _buildRecentUrlHistory(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                '最近解析',
-                style: Theme.of(
-                  context,
-                ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
-              ),
+  Widget _buildIncomingBanner(
+    BuildContext context,
+    _IncomingBannerState bannerState,
+  ) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      key: const ValueKey('incoming-link-banner'),
+      decoration: BoxDecoration(
+        color: colorScheme.primaryContainer.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colorScheme.primary.withValues(alpha: 0.18)),
+      ),
+      padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.ios_share, color: colorScheme.primary),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  bannerState.label,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '已自动填入链接并开始解析，你可以随时查看这次接入日志。',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ],
             ),
-            TextButton.icon(
-              key: const ValueKey('clear-parse-history-button'),
-              onPressed: _clearRecentUrls,
-              icon: const Icon(Icons.delete_outline),
-              label: const Text('清空'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 6),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            for (final url in _recentUrls)
-              ActionChip(
-                key: ValueKey('recent-url-$url'),
-                avatar: const Icon(Icons.history, size: 18),
-                label: Text(url, maxLines: 1, overflow: TextOverflow.ellipsis),
-                onPressed: () => _selectRecentUrl(url),
+          ),
+          const SizedBox(width: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              OutlinedButton(
+                key: const ValueKey('show-incoming-link-logs-button'),
+                onPressed: _showIncomingShareLogsDialog,
+                child: const Text('查看日志'),
               ),
-          ],
-        ),
-      ],
+              IconButton(
+                key: const ValueKey('dismiss-incoming-link-banner-button'),
+                tooltip: '隐藏提示',
+                onPressed: _dismissIncomingBanner,
+                icon: const Icon(Icons.close),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openRecentUrlHistory() async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            final recentUrls = _recentUrls;
+            return AlertDialog(
+              title: const Text('最近解析'),
+              content: SizedBox(
+                width: 560,
+                child: recentUrls.isEmpty
+                    ? const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 18),
+                        child: Text('当前还没有最近解析记录'),
+                      )
+                    : ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 360),
+                        child: ListView.separated(
+                          shrinkWrap: true,
+                          itemCount: recentUrls.length,
+                          separatorBuilder: (_, _) => const Divider(height: 1),
+                          itemBuilder: (context, index) {
+                            final url = recentUrls[index];
+                            return ListTile(
+                              key: ValueKey('recent-url-$url'),
+                              leading: const Icon(Icons.history),
+                              title: Text(
+                                url,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              onTap: () {
+                                _selectRecentUrl(url);
+                                Navigator.of(dialogContext).pop();
+                              },
+                            );
+                          },
+                        ),
+                      ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('关闭'),
+                ),
+                TextButton.icon(
+                  key: const ValueKey('clear-parse-history-button'),
+                  onPressed: recentUrls.isEmpty
+                      ? null
+                      : () async {
+                          await _clearRecentUrls();
+                          if (!mounted) {
+                            return;
+                          }
+                          setDialogState(() {});
+                        },
+                  icon: const Icon(Icons.delete_outline),
+                  label: const Text('清空'),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
@@ -1331,29 +2274,13 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
             _ResourceTile(
               resource: resource,
               imageRequestReferrer: imageRequestReferrer,
+              isResolving: _resolvingResourceUrls.contains(resource.url),
               onDownload: () => _handleDownload(resource),
             ),
             if (resource != resources.last) const Divider(height: 14),
           ],
         ],
       ),
-    );
-  }
-
-  Widget _buildDownloadSettingsSection(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _downloadQueueController!,
-      builder: (context, _) {
-        return DownloadSettingsPanel(
-          selectedDirectoryPath:
-              _downloadQueueController!.selectedDirectoryPath,
-          downloadSettings: _downloadSettings,
-          toolStatus: _downloadToolStatus,
-          onSelectDirectory: _handleSelectDownloadDirectory,
-          onResetDirectory: _handleResetDownloadDirectory,
-          onOpenDownloadSettings: _openDownloadSettings,
-        );
-      },
     );
   }
 

@@ -452,6 +452,108 @@ void main() {
     expect(await existingFile.readAsString(), 'old bytes');
     expect(await File(task.filePath!).readAsString(), 'new bytes from yt-dlp');
   });
+
+  test('downloads x resource via yt-dlp isolated workspace', () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'videodownloader_x_ytdlp_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+
+    final controller = DownloadQueueController(
+      useIoHttpClientForDirectDownloads: false,
+      client: _SpyHttpClient(),
+      processStarter: (executable, arguments) async {
+        expect(executable, 'yt-dlp');
+        final output = File(_ytDlpOutputPath(arguments));
+        await output.parent.create(recursive: true);
+        await output.writeAsString('x bytes from yt-dlp');
+        return _startNoopProcess();
+      },
+      downloadDirectoryResolver: () async => tempDirectory,
+      downloadHistoryStore: await _createHistoryStore(tempDirectory),
+    );
+    addTearDown(controller.dispose);
+
+    final task = controller.enqueue(_xResource);
+    await _waitForStatus(task, DownloadStatus.completed);
+
+    expect(task.filePath, isNotNull);
+    expect(task.fileName, 'openai_1234567890123456789.mp4');
+    expect(await File(task.filePath!).readAsString(), 'x bytes from yt-dlp');
+    expect(controller.history, hasLength(1));
+  });
+
+  test(
+    'prefers browser cookies for x downloads before anonymous mode',
+    () async {
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'videodownloader_x_cookies_',
+      );
+      addTearDown(() => tempDirectory.delete(recursive: true));
+
+      final attemptedArgs = <List<String>>[];
+      final controller = DownloadQueueController(
+        useIoHttpClientForDirectDownloads: false,
+        client: _SpyHttpClient(),
+        processStarter: (executable, arguments) async {
+          expect(executable, 'yt-dlp');
+          attemptedArgs.add(List<String>.from(arguments));
+          if (arguments.contains('--cookies-from-browser')) {
+            final output = File(_ytDlpOutputPath(arguments));
+            await output.parent.create(recursive: true);
+            await output.writeAsString('x bytes from browser cookies');
+            return _startNoopProcess();
+          }
+          return _startFailingProcess(
+            'anonymous fallback should not run first',
+          );
+        },
+        downloadDirectoryResolver: () async => tempDirectory,
+        downloadHistoryStore: await _createHistoryStore(tempDirectory),
+      );
+      addTearDown(controller.dispose);
+
+      final task = controller.enqueue(_xResource);
+      await _waitForStatus(task, DownloadStatus.completed);
+
+      expect(attemptedArgs, isNotEmpty);
+      expect(
+        attemptedArgs.first,
+        containsAll(['--cookies-from-browser', 'chrome']),
+      );
+      expect(
+        await File(task.filePath!).readAsString(),
+        'x bytes from browser cookies',
+      );
+    },
+  );
+
+  test('maps x no-video yt-dlp error to readable message', () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'videodownloader_x_no_video_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+
+    final controller = DownloadQueueController(
+      useIoHttpClientForDirectDownloads: false,
+      client: _SpyHttpClient(),
+      processStarter: (executable, arguments) async {
+        expect(executable, 'yt-dlp');
+        return _startFailingProcess(
+          'ERROR: [twitter] 2053349572873990526: No video could be found in this tweet',
+        );
+      },
+      downloadDirectoryResolver: () async => tempDirectory,
+      downloadHistoryStore: await _createHistoryStore(tempDirectory),
+    );
+    addTearDown(controller.dispose);
+
+    final task = controller.enqueue(_xResource);
+    await _waitForStatus(task, DownloadStatus.failed);
+
+    expect(task.errorMessage, contains('没有检测到可下载的视频媒体'));
+    expect(task.errorMessage, contains('可能是图片推文、纯文本推文'));
+  });
 }
 
 Future<void> _waitForStatus(
@@ -507,6 +609,15 @@ Future<Process> _startProgressProcess(File output) {
   ]);
 }
 
+Future<Process> _startFailingProcess(String stderrLine) {
+  if (Platform.isWindows) {
+    return Process.start('cmd', ['/c', 'echo $stderrLine 1>&2 & exit 1']);
+  }
+
+  final escapedLine = stderrLine.replaceAll("'", "'\\''");
+  return Process.start('sh', ['-c', "echo '$escapedLine' 1>&2; exit 1"]);
+}
+
 String _ytDlpOutputPath(List<String> arguments, {String extension = 'mp4'}) {
   final outputIndex = arguments.indexOf('-o');
   expect(outputIndex, isNot(-1));
@@ -540,6 +651,16 @@ const _youtubeResource = SourceResource(
   host: 'www.youtube.com',
   sizeHint: 'youtube_explode',
   youtubeVideoId: 'invalid_video_id',
+);
+
+const _xResource = SourceResource(
+  title: 'X 视频：@openai/1234567890123456789',
+  url: 'https://x.com/openai/status/1234567890123456789',
+  type: SourceResourceType.video,
+  platform: SourcePlatform.x,
+  host: 'x.com',
+  sizeHint: 'X 下载任务 · 使用 yt-dlp 加入下载队列',
+  requiresYtDlp: true,
 );
 
 class _SpyHttpClient extends http.BaseClient {

@@ -4,11 +4,13 @@ class _ResourceTile extends StatelessWidget {
   const _ResourceTile({
     required this.resource,
     required this.onDownload,
+    required this.isResolving,
     required this.imageRequestReferrer,
   });
 
   final SourceResource resource;
   final VoidCallback onDownload;
+  final bool isResolving;
   final String? imageRequestReferrer;
 
   @override
@@ -80,9 +82,15 @@ class _ResourceTile extends StatelessWidget {
         ),
         const SizedBox(width: 12),
         IconButton.filledTonal(
-          onPressed: onDownload,
-          tooltip: '下载',
-          icon: const Icon(Icons.download),
+          key: ValueKey('resource-download-${resource.url}'),
+          onPressed: isResolving ? null : onDownload,
+          tooltip: isResolving ? '正在解析' : '下载',
+          icon: isResolving
+              ? const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.download),
         ),
       ],
     );

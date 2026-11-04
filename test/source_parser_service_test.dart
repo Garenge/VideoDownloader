@@ -74,6 +74,25 @@ void main() {
     expect(videos.first.url, watchUrl);
   });
 
+  test('creates x download task even when page fetch fails', () async {
+    const statusUrl = 'https://x.com/openai/status/1234567890123456789';
+    final service = SourceParserService(
+      client: MockClient((request) async {
+        return http.Response('forbidden', 403, request: request);
+      }),
+    );
+
+    final result = await service.parse(statusUrl);
+    final videos = result.resourcesOf(SourceResourceType.video);
+
+    expect(result.platform, SourcePlatform.x);
+    expect(videos, hasLength(1));
+    expect(videos.first.url, statusUrl);
+    expect(videos.first.requiresYtDlp, isTrue);
+    expect(videos.first.title, 'X 视频：@openai/1234567890123456789');
+    expect(result.message, contains('网页请求失败，已保留平台下载任务'));
+  });
+
   test('extracts player resources from data attributes and inline scripts', () async {
     final service = SourceParserService(
       client: MockClient((request) async {

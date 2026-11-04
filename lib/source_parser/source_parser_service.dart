@@ -11,6 +11,7 @@ import 'source_resource.dart';
 part 'source_platform_detector.dart';
 part 'source_common_resource_extractor.dart';
 part 'source_resource_collector.dart';
+part 'source_x_parser.dart';
 part 'source_youtube_parser.dart';
 
 class SourceParserService {
@@ -41,15 +42,35 @@ class SourceParserService {
 
   Future<SourceParseResult> parse(String input) async {
     final uri = Uri.parse(input.trim());
-    final platform = _detectPlatform(uri);
-    final response = await _fetchPage(uri);
+    final requestedPlatform = _detectPlatform(uri);
+    final fallbackPlatformResources = await _extractPlatformResources(
+      uri,
+      requestedPlatform,
+    );
+
+    http.Response response;
+    try {
+      response = await _fetchPage(uri);
+    } on SourceParserException catch (error) {
+      if (fallbackPlatformResources.isEmpty) {
+        rethrow;
+      }
+
+      return SourceParseResult(
+        originalUrl: uri.toString(),
+        platform: requestedPlatform,
+        resources: fallbackPlatformResources,
+        message: '网页请求失败，已保留平台下载任务：${error.message}',
+      );
+    }
+
     final pageUri = response.request?.url ?? uri;
+    final platform = _detectPlatform(pageUri);
     final document = html_parser.parse(response.body);
     final commonResources = _extractResources(document, pageUri, platform);
-    final platformResources = await _extractPlatformResources(
-      pageUri,
-      platform,
-    );
+    final platformResources = pageUri == uri && platform == requestedPlatform
+        ? fallbackPlatformResources
+        : await _extractPlatformResources(pageUri, platform);
     final resources = _mergeResources([
       ...platformResources,
       ...commonResources,
@@ -72,8 +93,8 @@ class SourceParserService {
         _client,
         pageUri,
       ),
+      SourcePlatform.x => Future.value(_extractXResources(pageUri)),
       SourcePlatform.douyin ||
-      SourcePlatform.x ||
       SourcePlatform.bilibili ||
       SourcePlatform.other => Future.value(const []),
     };

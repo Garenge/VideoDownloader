@@ -14,13 +14,15 @@ class _ResourceCollector {
     required String title,
     required String sizeHint,
     String? youtubeVideoId,
+    bool requiresYtDlp = false,
   }) {
     final resolvedUrl = _resolveUrl(url);
     if (resolvedUrl == null) {
       return;
     }
 
-    final key = '${type.name}|$resolvedUrl|${youtubeVideoId ?? ''}';
+    final key =
+        '${type.name}|$resolvedUrl|${youtubeVideoId ?? ''}|$requiresYtDlp';
     if (!_seenKeys.add(key)) {
       return;
     }
@@ -34,6 +36,7 @@ class _ResourceCollector {
         host: Uri.tryParse(resolvedUrl)?.host ?? pageUri.host,
         sizeHint: sizeHint,
         youtubeVideoId: youtubeVideoId,
+        requiresYtDlp: requiresYtDlp,
       ),
     );
   }

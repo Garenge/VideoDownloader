@@ -48,6 +48,7 @@ class SourceResource {
     required this.host,
     required this.sizeHint,
     this.youtubeVideoId,
+    this.requiresYtDlp = false,
   });
 
   final String title;
@@ -57,8 +58,9 @@ class SourceResource {
   final String host;
   final String sizeHint;
 
-  /// 非空时表示应使用 [youtube_explode_dart] 解析流并下载，而不是对 [url] 做直链 GET。
+  /// 非空时表示这是 YouTube 资源，应走专用下载引擎而不是对 [url] 做直链 GET。
   final String? youtubeVideoId;
+  final bool requiresYtDlp;
 
   String get fileExtension {
     final path = Uri.tryParse(url)?.path ?? url;

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -7,7 +8,10 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:videodownloader/main.dart';
 import 'package:videodownloader/source_parser/download_history_store.dart';
+import 'package:videodownloader/source_parser/incoming_link_bridge.dart';
 import 'package:videodownloader/source_parser/parse_history_store.dart';
+import 'package:videodownloader/source_parser/source_parser_home_page.dart';
+import 'package:videodownloader/source_parser/source_resource.dart';
 import 'package:videodownloader/source_parser/source_parser_service.dart';
 
 void main() {
@@ -20,8 +24,14 @@ void main() {
     expect(find.text('图片 2'), findsOneWidget);
     expect(find.text('其他 1'), findsOneWidget);
     expect(find.text('Photo'), findsAtLeastNWidgets(1));
-    expect(find.text('https://cdn.example.com/photo.png'), findsAtLeastNWidgets(1));
-    expect(find.text('https://media.example.com/movie.mp4'), findsAtLeastNWidgets(1));
+    expect(
+      find.text('https://cdn.example.com/photo.png'),
+      findsAtLeastNWidgets(1),
+    );
+    expect(
+      find.text('https://media.example.com/movie.mp4'),
+      findsAtLeastNWidgets(1),
+    );
     expect(
       find.byKey(
         const ValueKey(
@@ -97,6 +107,14 @@ void main() {
 
     await _pumpParsedHomePage(tester, parseHistoryStore: historyStore);
 
+    expect(
+      find.byKey(const ValueKey('open-recent-urls-button')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('open-recent-urls-button')));
+    await tester.pumpAndSettle();
+
     expect(find.text('最近解析'), findsOneWidget);
     expect(
       find.byKey(
@@ -118,10 +136,15 @@ void main() {
     );
     expect(urlField.controller?.text, 'https://www.youtube.com/watch?v=demo');
 
+    await tester.tap(find.byKey(const ValueKey('open-recent-urls-button')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('clear-parse-history-button')));
     await tester.pumpAndSettle();
 
-    expect(find.text('最近解析'), findsNothing);
+    expect(find.text('当前还没有最近解析记录'), findsOneWidget);
+    await tester.tap(find.text('关闭'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('open-recent-urls-button')), findsNothing);
     expect(await historyStore.load(), isEmpty);
   });
 
@@ -142,7 +165,9 @@ void main() {
 ''',
     );
 
-    final downloadButton = find.byTooltip('下载').first;
+    final downloadButton = find
+        .widgetWithIcon(IconButton, Icons.download)
+        .first;
     await tester.ensureVisible(downloadButton);
     await tester.tap(downloadButton);
     await tester.pumpAndSettle();
@@ -151,6 +176,144 @@ void main() {
     expect(find.textContaining('HLS 播放列表资源'), findsOneWidget);
     expect(find.textContaining('当前未检测到 ffmpeg'), findsOneWidget);
     expect(find.text('继续下载'), findsOneWidget);
+  });
+
+  testWidgets('blocks x download queue entry when preflight finds no video', (
+    tester,
+  ) async {
+    await _pumpParsedHomePage(
+      tester,
+      htmlFixture: '''
+<!doctype html>
+<html>
+  <body>
+    <meta property="og:title" content="X status">
+  </body>
+</html>
+''',
+      initialUrl: 'https://x.com/openai/status/1234567890123456789',
+      xVideoPreflightProbe: (resource) async {
+        expect(resource.platform, SourcePlatform.x);
+        return const XVideoPreflightResult(
+          errorMessage:
+              '这条推文当前没有检测到可下载的视频媒体，已阻止加入下载队列。可能是图片推文、纯文本推文，或公开页面未暴露视频资源。',
+          debugLog: '[X Preflight Debug Log]\nmock=true',
+        );
+      },
+    );
+
+    final downloadButton = find.byKey(
+      const ValueKey(
+        'resource-download-https://x.com/openai/status/1234567890123456789',
+      ),
+    );
+    final button = tester.widget<IconButton>(downloadButton);
+    button.onPressed!.call();
+    await tester.pumpAndSettle();
+
+    expect(find.text('X 视频预检失败'), findsOneWidget);
+    expect(find.textContaining('已阻止加入下载队列'), findsOneWidget);
+    expect(find.text('复制日志'), findsOneWidget);
+    expect(find.textContaining('已加入下载队列'), findsNothing);
+  });
+
+  testWidgets('shows a resolving indicator while X preflight is pending', (
+    tester,
+  ) async {
+    final preflight = Completer<XVideoPreflightResult>();
+    await _pumpParsedHomePage(
+      tester,
+      htmlFixture: '''
+<!doctype html>
+<html>
+  <body>
+    <meta property="og:title" content="X status">
+  </body>
+</html>
+''',
+      initialUrl: 'https://x.com/openai/status/1234567890123456789',
+      xVideoPreflightProbe: (_) => preflight.future,
+    );
+
+    final downloadButton = find.byKey(
+      const ValueKey(
+        'resource-download-https://x.com/openai/status/1234567890123456789',
+      ),
+    );
+    await tester.ensureVisible(downloadButton);
+    tester.widget<IconButton>(downloadButton).onPressed!.call();
+    await tester.pump();
+
+    final resolvingButton = tester.widget<IconButton>(downloadButton);
+    expect(resolvingButton.onPressed, isNull);
+    expect(resolvingButton.tooltip, '正在解析');
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+    preflight.complete(
+      const XVideoPreflightResult(errorMessage: '预检失败', debugLog: 'test'),
+    );
+    await tester.pumpAndSettle();
+
+    final idleButton = tester.widget<IconButton>(downloadButton);
+    expect(idleButton.onPressed, isNotNull);
+    expect(idleButton.tooltip, '下载');
+    expect(find.text('X 视频预检失败'), findsOneWidget);
+  });
+
+  testWidgets('auto parses an incoming link from app intake', (tester) async {
+    final incomingLinkListenable = ValueNotifier<IncomingLinkEvent?>(null);
+    final parserService = SourceParserService(
+      client: MockClient((request) async {
+        if (_looksLikeThumbnailRequest(request.url)) {
+          return http.Response.bytes(
+            _minimalPngBytes,
+            200,
+            headers: const {'Content-Type': 'image/png'},
+          );
+        }
+
+        return http.Response(_htmlFixture, 200, request: request);
+      }),
+    );
+
+    await tester.pumpWidget(
+      VideoDownloaderApp(
+        parserService: parserService,
+        parseHistoryStore: _MemoryParseHistoryStore(),
+        downloadHistoryStore: _MemoryDownloadHistoryStore(),
+        incomingLinkListenable: incomingLinkListenable,
+      ),
+    );
+
+    incomingLinkListenable.value = const IncomingLinkEvent(
+      sequence: 1,
+      url: 'https://www.youtube.com/watch?v=shared_demo',
+      source: 'test',
+      origin: 'share_extension',
+      debugLog: '[Incoming Link Native Log]\norigin=share_extension',
+    );
+
+    await _pumpUntilFound(tester, find.text('YouTube'));
+
+    final urlField = tester.widget<TextField>(
+      find.widgetWithText(TextField, '目标 URL'),
+    );
+    expect(
+      urlField.controller?.text,
+      'https://www.youtube.com/watch?v=shared_demo',
+    );
+    expect(find.text('视频 1'), findsOneWidget);
+    expect(find.byKey(const ValueKey('incoming-link-banner')), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey('show-incoming-link-logs-button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('分享接入日志'), findsOneWidget);
+    expect(find.textContaining('origin=share_extension'), findsWidgets);
+    expect(find.textContaining('解析成功'), findsOneWidget);
+    expect(find.text('复制日志'), findsOneWidget);
   });
 }
 
@@ -201,6 +364,9 @@ Future<void> _pumpParsedHomePage(
   WidgetTester tester, {
   ParseHistoryStore? parseHistoryStore,
   String htmlFixture = _htmlFixture,
+  String initialUrl = 'https://www.youtube.com/watch?v=demo',
+  Future<XVideoPreflightResult> Function(SourceResource resource)?
+  xVideoPreflightProbe,
 }) async {
   final parserService = SourceParserService(
     client: MockClient((request) async {
@@ -221,15 +387,13 @@ Future<void> _pumpParsedHomePage(
       parserService: parserService,
       parseHistoryStore: parseHistoryStore ?? _MemoryParseHistoryStore(),
       downloadHistoryStore: _MemoryDownloadHistoryStore(),
+      xVideoPreflightProbe: xVideoPreflightProbe,
     ),
   );
 
   expect(find.text('等待解析'), findsOneWidget);
 
-  await tester.enterText(
-    find.widgetWithText(TextField, '目标 URL'),
-    'https://www.youtube.com/watch?v=demo',
-  );
+  await tester.enterText(find.widgetWithText(TextField, '目标 URL'), initialUrl);
   await tester.tap(find.text('解析'));
   await _pumpUntilFound(tester, find.text('YouTube'));
 }
