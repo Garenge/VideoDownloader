@@ -34,6 +34,19 @@ class XLoginBridge {
     await _channel.invokeMethod<void>('logout');
   }
 
+  static Future<void> configureIosProxy(String? spec) async {
+    if (!Platform.isIOS) return;
+    await _channel.invokeMethod<void>('configureProxy', spec);
+  }
+
+  static Future<List<String>?> resolveIosVideo(Uri page) async {
+    if (!Platform.isIOS || await isAuthenticated() != true) return null;
+    return await _channel.invokeListMethod<String>(
+      'resolveVideo',
+      page.toString(),
+    );
+  }
+
   static Future<T?> withCookieFile<T>(
     Future<T> Function(String cookieFilePath) action,
   ) async {

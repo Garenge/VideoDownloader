@@ -11,6 +11,8 @@ import 'download_engines/x_download_engine.dart';
 import 'download_engines/youtube_download_engine.dart';
 import 'reveal_in_finder_macos.dart';
 import 'source_resource.dart';
+import 'ios/ios_media_bridge.dart';
+import 'ios/ios_youtube_download_engine.dart';
 
 typedef DownloadDirectoryResolver = Future<Directory> Function();
 typedef FolderOpener = Future<void> Function(String path);
@@ -406,6 +408,9 @@ class DownloadQueueController extends ChangeNotifier {
         );
         outputFile = await _downloadYouTube(task, directory);
       } else if (task.resource.requiresYtDlp) {
+        if (Platform.isIOS) {
+          throw const DownloadException('请重新解析该链接，iOS 使用应用内下载引擎');
+        }
         task.addLog(
           'lib/source_parser/download_queue_controller.dart#_download: engine=x_yt_dlp',
         );
@@ -501,6 +506,9 @@ class DownloadQueueController extends ChangeNotifier {
   }
 
   Future<File> _downloadHttp(DownloadTask task, Directory directory) async {
+    if (Platform.isIOS && task.resource.requiresFfmpegPostProcess) {
+      throw const DownloadException('iOS 暂不支持 HLS / DASH 清单下载，请选择 MP4 直链资源');
+    }
     if (!_useIoHttpClientForDirectDownloads) {
       return _downloadHttpWithPackageClient(task, directory);
     }
@@ -689,6 +697,17 @@ class DownloadQueueController extends ChangeNotifier {
   }
 
   Future<File> _downloadYouTube(DownloadTask task, Directory directory) async {
+    if (Platform.isIOS) {
+      return IosYouTubeDownloadEngine(client: _client).download(
+        task: task,
+        directory: directory,
+        settings: _settings,
+        processRunner: _processRunner,
+        processStarter: _processStarter,
+        isCancelRequested: () => _cancelRequestedTaskIds.contains(task.id),
+        onProgressUpdated: notifyListeners,
+      );
+    }
     final engine = YouTubeDownloadEngine(httpClient: _client);
     return engine.download(
       task: task,
@@ -746,6 +765,10 @@ class DownloadQueueController extends ChangeNotifier {
   }
 
   static Future<void> _defaultFolderOpener(String path) async {
+    if (Platform.isIOS) {
+      await const IosMediaBridge().exportFile(path);
+      return;
+    }
     final entityType = FileSystemEntity.typeSync(path);
     if (entityType == FileSystemEntityType.notFound) {
       throw DownloadException(

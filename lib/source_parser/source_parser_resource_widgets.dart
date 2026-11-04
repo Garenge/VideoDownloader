@@ -15,6 +15,9 @@ class _ResourceTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final hints = Platform.isIOS && resource.requiresFfmpegPostProcess
+        ? const ['iOS 暂不支持该清单格式']
+        : resource.workflowHints;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -44,14 +47,13 @@ class _ResourceTile extends StatelessWidget {
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
-              if (resource.workflowHints.isNotEmpty) ...[
+              if (hints.isNotEmpty) ...[
                 const SizedBox(height: 6),
                 Wrap(
                   spacing: 6,
                   runSpacing: 6,
                   children: [
-                    for (final hint in resource.workflowHints)
-                      _ResourceHintChip(label: hint),
+                    for (final hint in hints) _ResourceHintChip(label: hint),
                   ],
                 ),
               ],

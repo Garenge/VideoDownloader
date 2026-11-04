@@ -20,7 +20,7 @@ class DownloadActivityOverlay extends StatelessWidget {
   final VoidCallback onClosePanel;
   final int activeTaskCount;
   final Widget queuePanel;
-  final Widget conversionPanel;
+  final Widget? conversionPanel;
   final Widget historyPanel;
 
   @override
@@ -104,7 +104,7 @@ class _DownloadPanelCard extends StatelessWidget {
   final double height;
   final VoidCallback onClose;
   final Widget queuePanel;
-  final Widget conversionPanel;
+  final Widget? conversionPanel;
   final Widget historyPanel;
 
   @override
@@ -121,7 +121,7 @@ class _DownloadPanelCard extends StatelessWidget {
         width: width,
         height: height,
         child: DefaultTabController(
-          length: 3,
+          length: conversionPanel == null ? 2 : 3,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -157,17 +157,18 @@ class _DownloadPanelCard extends StatelessWidget {
               TabBar(
                 labelColor: theme.colorScheme.primary,
                 unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
-                tabs: const [
-                  Tab(text: '队列'),
-                  Tab(text: '转换'),
-                  Tab(text: '历史'),
+                tabs: [
+                  const Tab(text: '队列'),
+                  if (conversionPanel != null) const Tab(text: '转换'),
+                  const Tab(text: '历史'),
                 ],
               ),
               Expanded(
                 child: TabBarView(
                   children: [
                     _ScrollableTabBody(child: queuePanel),
-                    _ScrollableTabBody(child: conversionPanel),
+                    if (conversionPanel != null)
+                      _ScrollableTabBody(child: conversionPanel!),
                     _ScrollableTabBody(child: historyPanel),
                   ],
                 ),

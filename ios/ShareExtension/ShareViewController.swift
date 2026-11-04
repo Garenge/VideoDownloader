@@ -115,6 +115,10 @@ final class ShareViewController: UIViewController {
       print(
         "ios/ShareExtension/ShareViewController.swift#_startShareFlow: sharedUrl=\(sharedUrl.absoluteString)"
       )
+      guard SharedLinkStore.save(sharedUrl) else {
+        self._finishWithError("分享存储未就绪，请检查主 App 与分享扩展的 App Group 签名配置")
+        return
+      }
       self.extensionContext?.open(appUrl) { success in
         DispatchQueue.main.async {
           if success {
@@ -125,7 +129,9 @@ final class ShareViewController: UIViewController {
             return
           }
 
-          self._finishWithError("无法唤起主 App，请确认 VideoDownloader 已安装")
+          self._statusLabel.text = "链接已保存"
+          self._detailLabel.text = "关闭此窗口后打开 VideoDownloader，App 会自动接收并解析链接"
+          self._dismissButton.isHidden = false
         }
       }
     }

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:html/dom.dart' as dom;
 import 'package:html/parser.dart' as html_parser;
@@ -7,6 +8,8 @@ import 'package:http/http.dart' as http;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart' show VideoId;
 
 import 'source_resource.dart';
+import 'ios/x_public_video_resolver.dart';
+import 'ios/ios_x_video_resolver.dart';
 
 part 'source_platform_detector.dart';
 part 'source_common_resource_extractor.dart';
@@ -15,12 +18,24 @@ part 'source_x_parser.dart';
 part 'source_youtube_parser.dart';
 
 class SourceParserService {
-  SourceParserService({http.Client? client, bool? ownClient})
-    : _client = client ?? http.Client(),
-      _ownsClient = ownClient ?? (client == null);
+  SourceParserService({
+    http.Client? client,
+    bool? ownClient,
+    bool? useNativeDownloads,
+    XPublicVideoResolver? xPublicVideoResolver,
+    Future<List<String>?> Function(Uri)? xSessionResolver,
+  }) : _client = client ?? http.Client(),
+       _ownsClient = ownClient ?? (client == null),
+       _useNativeDownloads = useNativeDownloads ?? Platform.isIOS,
+       _iosXVideoResolver = IosXVideoResolver(
+         publicResolver: xPublicVideoResolver ?? XPublicVideoResolver(),
+         sessionResolver: xSessionResolver,
+       );
 
   http.Client _client;
   bool _ownsClient;
+  final bool _useNativeDownloads;
+  final IosXVideoResolver _iosXVideoResolver;
 
   void replaceHttpClient(http.Client newClient) {
     if (_ownsClient) {
@@ -43,6 +58,28 @@ class SourceParserService {
   Future<SourceParseResult> parse(String input) async {
     final uri = Uri.parse(input.trim());
     final requestedPlatform = _detectPlatform(uri);
+    if (_useNativeDownloads && requestedPlatform == SourcePlatform.x) {
+      return SourceParseResult(
+        originalUrl: uri.toString(),
+        platform: requestedPlatform,
+        resources: await _iosXVideoResolver.resolve(_client, uri),
+      );
+    }
+    if (_useNativeDownloads && requestedPlatform == SourcePlatform.youtube) {
+      return SourceParseResult(
+        originalUrl: uri.toString(),
+        platform: requestedPlatform,
+        resources: await _extractPlatformResources(uri, requestedPlatform),
+      );
+    }
+    final direct = _useNativeDownloads ? _directMediaResource(uri) : null;
+    if (direct != null) {
+      return SourceParseResult(
+        originalUrl: uri.toString(),
+        platform: requestedPlatform,
+        resources: [direct],
+      );
+    }
     final fallbackPlatformResources = await _extractPlatformResources(
       uri,
       requestedPlatform,
@@ -84,10 +121,48 @@ class SourceParserService {
     );
   }
 
+  SourceResource? _directMediaResource(Uri uri) {
+    final name = uri.pathSegments.lastOrNull ?? '';
+    final extension = name.split('.').last.toLowerCase();
+    final type = switch (extension) {
+      'mp4' || 'mov' || 'm4v' => SourceResourceType.video,
+      'jpg' || 'jpeg' || 'png' || 'gif' || 'webp' => SourceResourceType.image,
+      _ => null,
+    };
+    if (type == null) return null;
+    return SourceResource(
+      title: name,
+      url: uri.toString(),
+      type: type,
+      platform: _detectPlatform(uri),
+      host: uri.host,
+      sizeHint: '媒体直链 · 应用内下载',
+    );
+  }
+
   Future<List<SourceResource>> _extractPlatformResources(
     Uri pageUri,
     SourcePlatform platform,
   ) async {
+    if (_useNativeDownloads && platform == SourcePlatform.youtube) {
+      final resources = await _extractYouTubePublicResources(_client, pageUri);
+      final id = VideoId.parseVideoId(pageUri.toString());
+      if (id != null && !resources.any((item) => item.youtubeVideoId != null)) {
+        return [
+          ...resources,
+          SourceResource(
+            title: 'YouTube 视频：$id',
+            url: pageUri.toString(),
+            type: SourceResourceType.video,
+            platform: platform,
+            host: pageUri.host,
+            sizeHint: 'YouTube 下载任务 · 应用内解析',
+            youtubeVideoId: id,
+          ),
+        ];
+      }
+      return resources;
+    }
     return switch (platform) {
       SourcePlatform.youtube => _extractYouTubePublicResources(
         _client,

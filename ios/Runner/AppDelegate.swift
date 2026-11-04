@@ -6,6 +6,9 @@ import UIKit
   private static let incomingLinkChannelName = "videodownloader/incoming_link"
   private static var incomingLinkChannel: FlutterMethodChannel?
   private static var pendingIncomingLinkPayload: [String: Any]?
+  private static var incomingLinkDartReady = false
+  private let mediaBridge = IosMediaBridge()
+  private let xLoginBridge = IosXLoginBridge()
 
   override func application(
     _ application: UIApplication,
@@ -27,6 +30,8 @@ import UIKit
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    mediaBridge.register(messenger: engineBridge.applicationRegistrar.messenger())
+    xLoginBridge.register(messenger: engineBridge.applicationRegistrar.messenger())
     let channel = FlutterMethodChannel(
       name: Self.incomingLinkChannelName,
       binaryMessenger: engineBridge.applicationRegistrar.messenger()
@@ -34,6 +39,12 @@ import UIKit
     channel.setMethodCallHandler { call, result in
       switch call.method {
       case "getInitialLink":
+        Self.incomingLinkDartReady = true
+        if Self.pendingIncomingLinkPayload == nil, let shared = SharedLinkStore.take() {
+          Self.pendingIncomingLinkPayload = Self.extractIncomingPayload(
+            from: shared, source: "shared_storage_initial"
+          )
+        }
         let pendingPayload = Self.pendingIncomingLinkPayload
         Self.pendingIncomingLinkPayload = nil
         print(
@@ -58,11 +69,12 @@ import UIKit
 
     let incomingUrl = payload["url"] as? String ?? "nil"
     let origin = payload["origin"] as? String ?? "unknown"
+    if origin == "share_extension" { SharedLinkStore.clear() }
     print(
       "ios/Runner/AppDelegate.swift#handleIncomingUrl: source=\(source) origin=\(origin) incomingUrl=\(incomingUrl)"
     )
 
-    guard let channel = incomingLinkChannel else {
+    guard let channel = incomingLinkChannel, incomingLinkDartReady else {
       pendingIncomingLinkPayload = payload
       print(
         "ios/Runner/AppDelegate.swift#handleIncomingUrl: channel not ready, cached incomingUrl=\(incomingUrl)"
@@ -72,6 +84,12 @@ import UIKit
 
     channel.invokeMethod("onIncomingLink", arguments: payload)
     return true
+  }
+
+  static func consumeSharedLink() {
+    if let url = SharedLinkStore.take() {
+      _ = handleIncomingUrl(url, source: "shared_storage_resume")
+    }
   }
 
   private static func extractIncomingPayload(

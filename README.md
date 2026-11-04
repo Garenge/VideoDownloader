@@ -4,6 +4,13 @@ VideoDownloader is a Flutter desktop app for parsing web page resources. The
 target workflow is: paste a URL, detect the source platform, extract video,
 image, and other downloadable files, then show them by category for download.
 
+## iOS
+
+The iOS app uses an independent, on-device download path without `yt-dlp`
+or command-line `ffmpeg`. See [iOS development and device validation](docs/ios_development.md)
+for supported formats, signing, App Groups, and testing. The desktop behavior
+described below differs from the iOS feature set.
+
 ## Current Status
 
 - macOS app can be built and launched.
@@ -204,8 +211,10 @@ Current Phase 2 share-in contract:
 - Share target: `VideoDownloader`
 - Expected source: X App share sheet, or any App that shares a web link / text
 - Current handoff path:
-  Share Extension extracts the first `http/https` URL, then opens
-  `videodownloader://parse?url=<shared url>` back into the main app
+  Share Extension saves the X link in an App Group and attempts to open
+  `videodownloader://parse?url=<shared url>` back into the main app.
+  If the system does not open the host, the extension confirms the link is saved;
+  opening the main app manually consumes it.
 - Current preference:
   only accept `x.com` / `twitter.com` post links; if shared text contains
   multiple links, prefer the first valid `.../status/...` entry
@@ -215,7 +224,8 @@ Quick iPhone verification:
 1. Build and install the iOS App on device.
 2. In the X App, open a post and tap `Share`.
 3. Choose `VideoDownloader` in the iOS share sheet.
-4. Expect the main App to open and auto-start parsing the shared X link.
+4. If the main App opens, expect parsing to start. Otherwise, close the share
+   window and open the App manually to consume the saved link.
 5. If share-in fails, the extension should keep a visible error page instead
    of disappearing immediately.
 6. After the main App opens, expect a visible `来自 iOS 分享` 提示条 and a

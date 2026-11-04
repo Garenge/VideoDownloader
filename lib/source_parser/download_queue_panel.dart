@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 
 import 'download_history_store.dart';
 import 'download_queue_controller.dart';
 import 'download_settings.dart';
+
+bool get _isIos => defaultTargetPlatform == TargetPlatform.iOS;
+String get _exportTooltip => _isIos ? '分享或存储文件' : '打开所在文件夹';
+IconData get _exportIcon => _isIos ? Icons.ios_share : Icons.folder_open;
 
 class DownloadSettingsPanel extends StatelessWidget {
   const DownloadSettingsPanel({
@@ -223,12 +228,14 @@ class DownloadHistoryPanel extends StatelessWidget {
     required this.onOpenFolder,
     required this.onConvertToMp4,
     required this.onClear,
+    this.canConvertToMp4 = true,
   });
 
   final List<DownloadHistoryRecord> records;
   final ValueChanged<DownloadHistoryRecord> onOpenFolder;
   final ValueChanged<DownloadHistoryRecord> onConvertToMp4;
   final VoidCallback onClear;
+  final bool canConvertToMp4;
 
   @override
   Widget build(BuildContext context) {
@@ -263,7 +270,7 @@ class DownloadHistoryPanel extends StatelessWidget {
               _DownloadHistoryTile(
                 record: record,
                 onOpenFolder: () => onOpenFolder(record),
-                onConvertToMp4: record.isM3u8
+                onConvertToMp4: canConvertToMp4 && record.isM3u8
                     ? () => onConvertToMp4(record)
                     : null,
               ),
@@ -305,8 +312,8 @@ class _DownloadHistoryTile extends StatelessWidget {
         if (onConvertToMp4 != null) const SizedBox(width: 4),
         IconButton(
           onPressed: onOpenFolder,
-          tooltip: '打开所在文件夹',
-          icon: const Icon(Icons.folder_open),
+          tooltip: _exportTooltip,
+          icon: Icon(_exportIcon),
         ),
       ],
     );
@@ -400,8 +407,8 @@ class _DownloadTaskTile extends StatelessWidget {
                 if (canOpenFolder)
                   _TaskActionButton(
                     onPressed: onOpenFolder,
-                    tooltip: '打开所在文件夹',
-                    icon: Icons.folder_open,
+                    tooltip: _exportTooltip,
+                    icon: _exportIcon,
                   ),
                 if (canRetry)
                   _TaskActionButton(

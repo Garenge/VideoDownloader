@@ -27,6 +27,9 @@ import 'resource_thumbnail_image.dart';
 import 'source_parser_service.dart';
 import 'source_resource.dart';
 import 'x_login_bridge.dart';
+import 'parse_failure_message.dart';
+import 'ios/ios_download_info.dart';
+import 'parser_action_bar.dart';
 
 part 'source_parser_resource_widgets.dart';
 
@@ -271,6 +274,7 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
   Future<void> _bootstrapOwnedNetworkClients() async {
     final store = _proxySettingsStore!;
     final spec = await store.load();
+    await _configureIosXProxy(spec);
     if (!mounted) {
       return;
     }
@@ -312,6 +316,10 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
   }
 
   Future<void> _refreshDownloadToolStatus() async {
+    if (Platform.isIOS) {
+      setState(() => _downloadToolStatusReady = true);
+      return;
+    }
     DownloadToolStatus status = const DownloadToolStatus.unknown();
 
     final ytDlp = await _probeTool('yt-dlp', const ['--version']);
@@ -347,6 +355,7 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
   }
 
   void _maybeShowStartupToolWarning() {
+    if (Platform.isIOS) return;
     if (!mounted || _hasShownStartupToolWarning) {
       return;
     }
@@ -559,6 +568,10 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
   }
 
   Future<void> _openDownloadSettings() async {
+    if (Platform.isIOS) {
+      await showIosDownloadInfo(context);
+      return;
+    }
     await showDownloadSettingsDialog(
       context: context,
       initialSettings: _downloadSettings,
@@ -713,6 +726,7 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
   }
 
   Future<void> _persistProxyAndApplyClients(String? spec) async {
+    await _configureIosXProxy(spec);
     await _proxySettingsStore!.save(spec);
     final parserClient = ProxiedHttpClientFactory.create(spec);
     final downloadClient = ProxiedHttpClientFactory.create(spec);
@@ -725,6 +739,20 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
     setState(() {
       _savedProxySpec = spec;
     });
+  }
+
+  Future<void> _configureIosXProxy(String? spec) async {
+    try {
+      await XLoginBridge.configureIosProxy(spec);
+    } on PlatformException catch (error) {
+      debugPrint(
+        'lib/source_parser/source_parser_home_page.dart#_configureIosXProxy: '
+        '无法配置 X 网页代理 code=${error.code}',
+      );
+      if (mounted) {
+        setState(() => _errorText = error.message ?? 'X 网页代理配置失败');
+      }
+    }
   }
 
   void _handleResourceSearchChanged() {
@@ -796,16 +824,20 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
         '解析成功 platform=${result.platform.label} total=${result.resources.length} url=${result.originalUrl}',
       );
       await _saveParsedUrl(result.originalUrl);
-    } on SourceParserException catch (error) {
+    } on Object catch (error, stack) {
       if (!mounted) {
         return;
       }
-
+      final message = parseFailureMessage(error);
+      debugPrint(
+        'lib/source_parser/source_parser_home_page.dart#_handleParse: '
+        '解析失败 type=${error.runtimeType}\n$stack',
+      );
       _appendParseResultToIncomingShareLogs(
-        '解析失败 url=$parseUrl message=${error.message}',
+        '解析失败 url=$parseUrl message=$message',
       );
       setState(() {
-        _errorText = error.message;
+        _errorText = message;
         _result = null;
       });
     } finally {
@@ -885,7 +917,7 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
             FilledButton(
               onPressed: () async {
                 await Clipboard.setData(ClipboardData(text: text));
-                if (!mounted) {
+                if (!mounted || !dialogContext.mounted) {
                   return;
                 }
                 Navigator.of(dialogContext).pop();
@@ -1029,6 +1061,12 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
   }
 
   Future<void> _handleDownload(SourceResource resource) async {
+    if (Platform.isIOS && resource.requiresFfmpegPostProcess) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('iOS 暂不支持 HLS / DASH 清单下载，请选择 MP4 资源')),
+      );
+      return;
+    }
     if (_resolvingResourceUrls.contains(resource.url)) {
       return;
     }
@@ -1071,6 +1109,9 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
   Future<XVideoPreflightResult> _maybeProbeXVideoBeforeDownload(
     SourceResource resource,
   ) async {
+    if (Platform.isIOS) {
+      return const XVideoPreflightResult(errorMessage: null);
+    }
     if (!resource.requiresYtDlp || resource.platform != SourcePlatform.x) {
       return const XVideoPreflightResult(errorMessage: null);
     }
@@ -1465,6 +1506,10 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
   }
 
   Future<void> _handleSelectDownloadDirectory() async {
+    if (Platform.isIOS) {
+      await showIosDownloadInfo(context);
+      return;
+    }
     final directoryPath = await getDirectoryPath(confirmButtonText: '选择保存目录');
     if (directoryPath == null || directoryPath.trim().isEmpty) {
       return;
@@ -1501,9 +1546,11 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
         return;
       }
 
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('打开文件夹失败：$error')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(Platform.isIOS ? '分享文件失败：$error' : '打开文件夹失败：$error'),
+        ),
+      );
     }
   }
 
@@ -1527,9 +1574,11 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
         return;
       }
 
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('打开历史文件夹失败：$error')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(Platform.isIOS ? '分享文件失败：$error' : '打开历史文件夹失败：$error'),
+        ),
+      );
     }
   }
 
@@ -1728,18 +1777,21 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
                       onOpenFolder: _handleOpenDownloadedFolder,
                       onCopyLogs: _handleCopyTaskLogs,
                     ),
-                    conversionPanel: MediaConversionPanel(
-                      tasks: _mediaConversionController!.tasks,
-                      onCancel: _mediaConversionController!.cancel,
-                      onRetry: _mediaConversionController!.retry,
-                      onOpenFolder: _handleOpenConvertedFolder,
-                      onCopyLogs: _handleCopyConversionLogs,
-                    ),
+                    conversionPanel: Platform.isIOS
+                        ? null
+                        : MediaConversionPanel(
+                            tasks: _mediaConversionController!.tasks,
+                            onCancel: _mediaConversionController!.cancel,
+                            onRetry: _mediaConversionController!.retry,
+                            onOpenFolder: _handleOpenConvertedFolder,
+                            onCopyLogs: _handleCopyConversionLogs,
+                          ),
                     historyPanel: DownloadHistoryPanel(
                       records: controller.history,
                       onOpenFolder: _handleOpenHistoryFolder,
                       onConvertToMp4: _handleConvertHistoryToMp4,
                       onClear: controller.clearHistory,
+                      canConvertToMp4: !Platform.isIOS,
                     ),
                   );
                 },
@@ -1805,7 +1857,7 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
             icon: const Icon(Icons.settings_ethernet),
           ),
         ],
-        if (Platform.isMacOS)
+        if (Platform.isMacOS || Platform.isIOS)
           PopupMenuButton<_HeaderMenuAction>(
             key: const ValueKey('x-account-menu-button'),
             tooltip: _xAuthenticated
@@ -1865,23 +1917,25 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
                   title: Text('下载设置'),
                 ),
               ),
-              const PopupMenuItem<_HeaderMenuAction>(
-                value: _HeaderMenuAction.selectDownloadDirectory,
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.folder_open),
-                  title: Text('选择保存目录'),
+              if (!Platform.isIOS)
+                const PopupMenuItem<_HeaderMenuAction>(
+                  value: _HeaderMenuAction.selectDownloadDirectory,
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.folder_open),
+                    title: Text('选择保存目录'),
+                  ),
                 ),
-              ),
-              PopupMenuItem<_HeaderMenuAction>(
-                value: _HeaderMenuAction.resetDownloadDirectory,
-                enabled: hasSelectedDirectory,
-                child: const ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.restart_alt),
-                  title: Text('重置保存目录'),
+              if (!Platform.isIOS)
+                PopupMenuItem<_HeaderMenuAction>(
+                  value: _HeaderMenuAction.resetDownloadDirectory,
+                  enabled: hasSelectedDirectory,
+                  child: const ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.restart_alt),
+                    title: Text('重置保存目录'),
+                  ),
                 ),
-              ),
             ];
           },
         ),
@@ -1918,33 +1972,11 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
               },
             ),
             const SizedBox(height: 14),
-            Row(
-              children: [
-                Expanded(child: _buildPlatformHints(context)),
-                const SizedBox(width: 14),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    OutlinedButton.icon(
-                      key: const ValueKey('open-in-browser-button'),
-                      onPressed: _handleOpenInBrowser,
-                      icon: const Icon(Icons.open_in_browser),
-                      label: const Text('在浏览器打开'),
-                    ),
-                    FilledButton.icon(
-                      onPressed: _isParsing ? null : _handleParse,
-                      icon: _isParsing
-                          ? const SizedBox.square(
-                              dimension: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.search),
-                      label: Text(_isParsing ? '解析中' : '解析'),
-                    ),
-                  ],
-                ),
-              ],
+            ParserActionBar(
+              hints: _buildPlatformHints(context),
+              isParsing: _isParsing,
+              onOpenBrowser: _handleOpenInBrowser,
+              onParse: _handleParse,
             ),
             if (_recentUrls.isNotEmpty) ...[
               const SizedBox(height: 12),
@@ -2321,7 +2353,9 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
             ),
             const SizedBox(height: 6),
             Text(
-              '支持抖音、X、YouTube、Bilibili，其他来源会归入其他分类。',
+              Platform.isIOS
+                  ? '可解析媒体直链、X 公开视频和 YouTube；其他网页按源码提取资源。'
+                  : '支持抖音、X、YouTube、Bilibili，其他来源会归入其他分类。',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,

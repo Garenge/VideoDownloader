@@ -15,6 +15,33 @@ import 'package:videodownloader/source_parser/source_resource.dart';
 import 'package:videodownloader/source_parser/source_parser_service.dart';
 
 void main() {
+  testWidgets('unexpected parse timeout displays an error and enables retry', (
+    tester,
+  ) async {
+    final parser = SourceParserService(
+      useNativeDownloads: true,
+      xSessionResolver: (_) async => throw TimeoutException('network'),
+    );
+    addTearDown(parser.dispose);
+    await tester.pumpWidget(
+      VideoDownloaderApp(
+        parserService: parser,
+        parseHistoryStore: _MemoryParseHistoryStore(),
+        downloadHistoryStore: _MemoryDownloadHistoryStore(),
+      ),
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, '目标 URL'),
+      'https://x.com/demo/status/123',
+    );
+    await tester.tap(find.text('解析'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('解析请求超时'), findsOneWidget);
+    expect(find.text('解析中'), findsNothing);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('shows parser home page and parses url', (tester) async {
     await _pumpParsedHomePage(tester);
 
