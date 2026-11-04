@@ -65,6 +65,66 @@ class YouTubeDownloadEngine extends DownloadEngine {
       throw const DownloadException('YouTube 资源缺少 videoId');
     }
 
+    if (settings.enableYtDlpFallback && settings.preferYtDlpForYouTube) {
+      return _downloadPreferYtDlp(
+        task: task,
+        directory: directory,
+        settings: settings,
+        processRunner: processRunner,
+        processStarter: processStarter,
+        isCancelRequested: isCancelRequested,
+        onProgressUpdated: onProgressUpdated,
+      );
+    }
+
+    return _downloadPreferExplode(
+      task: task,
+      directory: directory,
+      settings: settings,
+      processRunner: processRunner,
+      processStarter: processStarter,
+      isCancelRequested: isCancelRequested,
+      onProgressUpdated: onProgressUpdated,
+      videoId: videoId,
+    );
+  }
+
+  Future<File> _downloadPreferYtDlp({
+    required DownloadTask task,
+    required Directory directory,
+    required DownloadSettings settings,
+    required ProcessRunner processRunner,
+    required ProcessStarter processStarter,
+    required CancelCheck isCancelRequested,
+    required void Function() onProgressUpdated,
+  }) async {
+    task.addLog(
+      'lib/source_parser/download_engines/youtube_download_engine.dart#download: strategy=prefer_yt_dlp',
+    );
+    task.statusDetail = 'YouTube：使用 yt-dlp 独立下载流程…';
+    onProgressUpdated();
+    return _downloadViaYtDlpWithStatus(
+      task: task,
+      directory: directory,
+      settings: settings,
+      processRunner: processRunner,
+      processStarter: processStarter,
+      isCancelRequested: isCancelRequested,
+      onProgressUpdated: onProgressUpdated,
+      reason: 'preferred_only',
+    );
+  }
+
+  Future<File> _downloadPreferExplode({
+    required DownloadTask task,
+    required Directory directory,
+    required DownloadSettings settings,
+    required ProcessRunner processRunner,
+    required ProcessStarter processStarter,
+    required CancelCheck isCancelRequested,
+    required void Function() onProgressUpdated,
+    required String videoId,
+  }) async {
     // Prevent YoutubeExplode.close() from closing the shared queue client.
     final yt = YoutubeExplode(
       httpClient: YoutubeHttpClient(_NonClosingHttpClient(_client)),
@@ -91,8 +151,31 @@ class YouTubeDownloadEngine extends DownloadEngine {
         throw const DownloadException('未找到可下载的流（可能受地区/年龄限制）');
       }
       task.addLog(
-        'lib/source_parser/download_engines/youtube_download_engine.dart#download: explode stream=${streamInfo.container.name} size=${streamInfo.size.totalBytes}',
+        'lib/source_parser/download_engines/youtube_download_engine.dart#download: '
+        'explode streamType=${streamInfo.runtimeType} container=${streamInfo.container.name} size=${streamInfo.size.totalBytes}',
       );
+
+      if (!_supportsDirectDownload(streamInfo)) {
+        task.addLog(
+          'lib/source_parser/download_engines/youtube_download_engine.dart#download: '
+          'unsupported direct stream type=${streamInfo.runtimeType} container=${streamInfo.container.name}, switch to yt-dlp',
+        );
+        if (!settings.enableYtDlpFallback) {
+          throw const DownloadException(
+            '当前视频仅提供 HLS 或分离音视频流，应用内直连下载暂不支持，请开启 yt-dlp 兜底后重试',
+          );
+        }
+        return _downloadViaYtDlpWithStatus(
+          task: task,
+          directory: directory,
+          settings: settings,
+          processRunner: processRunner,
+          processStarter: processStarter,
+          isCancelRequested: isCancelRequested,
+          onProgressUpdated: onProgressUpdated,
+          reason: 'unsupported_direct_stream',
+        );
+      }
 
       final safeTitle = video.title.replaceAll(RegExp(r'[\\/:*?"<>|]+'), '_');
       task.fileName = '$safeTitle.${streamInfo.container.name}';
@@ -149,12 +232,7 @@ class YouTubeDownloadEngine extends DownloadEngine {
       }
 
       try {
-        task.addLog(
-          'lib/source_parser/download_engines/youtube_download_engine.dart#download: fallback=yt-dlp start',
-        );
-        task.statusDetail = 'YouTube：改用 yt-dlp（首次可能较慢）…';
-        onProgressUpdated();
-        final fallbackFile = await _downloadViaYtDlp(
+        final fallbackFile = await _downloadViaYtDlpWithStatus(
           task: task,
           directory: directory,
           settings: settings,
@@ -162,6 +240,7 @@ class YouTubeDownloadEngine extends DownloadEngine {
           processStarter: processStarter,
           isCancelRequested: isCancelRequested,
           onProgressUpdated: onProgressUpdated,
+          reason: 'explode_error=$error',
         );
         return fallbackFile;
       } on Object catch (ytDlpError) {
@@ -175,6 +254,34 @@ class YouTubeDownloadEngine extends DownloadEngine {
     } finally {
       yt.close();
     }
+  }
+
+  Future<File> _downloadViaYtDlpWithStatus({
+    required DownloadTask task,
+    required Directory directory,
+    required DownloadSettings settings,
+    required ProcessRunner processRunner,
+    required ProcessStarter processStarter,
+    required CancelCheck isCancelRequested,
+    required void Function() onProgressUpdated,
+    required String reason,
+  }) async {
+    task.addLog(
+      'lib/source_parser/download_engines/youtube_download_engine.dart#download: fallback=yt-dlp start reason=$reason',
+    );
+    task.statusDetail = reason == 'preferred_only'
+        ? 'YouTube：准备 yt-dlp 独立任务…'
+        : 'YouTube：改用 yt-dlp 独立任务…';
+    onProgressUpdated();
+    return _downloadViaYtDlp(
+      task: task,
+      directory: directory,
+      settings: settings,
+      processRunner: processRunner,
+      processStarter: processStarter,
+      isCancelRequested: isCancelRequested,
+      onProgressUpdated: onProgressUpdated,
+    );
   }
 
   Future<StreamManifest> _getManifestWithFallback(
@@ -231,6 +338,10 @@ class YouTubeDownloadEngine extends DownloadEngine {
     return null;
   }
 
+  static bool _supportsDirectDownload(StreamInfo streamInfo) {
+    return streamInfo is MuxedStreamInfo;
+  }
+
   Future<File> _downloadViaYtDlp({
     required DownloadTask task,
     required Directory directory,
@@ -240,171 +351,176 @@ class YouTubeDownloadEngine extends DownloadEngine {
     required CancelCheck isCancelRequested,
     required void Function() onProgressUpdated,
   }) async {
-    final beforePaths = await _listFilePaths(directory);
+    final plan = await _prepareYtDlpPlan(task, directory);
     final args = _buildYtDlpArgs(
       task: task,
-      directory: directory,
+      outputTemplate: plan.outputTemplate,
       settings: settings,
     );
 
-    Process process;
     try {
-      process = await processStarter('yt-dlp', args);
-    } on ProcessException catch (error) {
-      final detail = error.message;
-      if (detail.contains('Operation not permitted')) {
-        throw const DownloadException(
-          '系统禁止当前应用执行外部命令（可能是 macOS 沙箱限制），请关闭沙箱或改为非沙箱运行后重试',
-        );
+      Process process;
+      try {
+        process = await processStarter('yt-dlp', args);
+      } on ProcessException catch (error) {
+        final detail = error.message;
+        if (detail.contains('Operation not permitted')) {
+          throw const DownloadException(
+            '系统禁止当前应用执行外部命令（可能是 macOS 沙箱限制），请关闭沙箱或改为非沙箱运行后重试',
+          );
+        }
+        throw DownloadException('未检测到 yt-dlp，请先安装后重试（${error.message}）');
       }
-      throw DownloadException('未检测到 yt-dlp，请先安装后重试（${error.message}）');
-    }
 
-    if (isCancelRequested()) {
-      process.kill(ProcessSignal.sigterm);
-      throw const DownloadCanceledException();
-    }
-
-    task.statusDetail = 'YouTube：yt-dlp 下载中…';
-    onProgressUpdated();
-
-    final stderrBuffer = StringBuffer();
-    final stdoutBuffer = StringBuffer();
-    final reportedPaths = <String>{};
-    var canceled = false;
-
-    void maybeCancel() {
-      if (!canceled && isCancelRequested()) {
-        canceled = true;
+      if (isCancelRequested()) {
         process.kill(ProcessSignal.sigterm);
-      }
-    }
-
-    void handleProgressLine(String line) {
-      maybeCancel();
-      final trimmed = line.trim();
-      _collectReportedPath(trimmed, reportedPaths);
-      final progressMatch = RegExp(
-        r'\[download\]\s+(\d+(?:\.\d+)?)%',
-      ).firstMatch(trimmed);
-      if (progressMatch == null) {
-        return;
+        throw const DownloadCanceledException();
       }
 
-      final percent = double.tryParse(progressMatch.group(1) ?? '');
-      if (percent == null) {
-        return;
-      }
-
-      final clampedPercent = percent.clamp(0, 100);
-      task.progress = clampedPercent / 100;
-      task.statusDetail = null;
-
-      final totalMatch = RegExp(
-        r'of\s+([0-9.]+)([KMGTP]i?B)',
-        caseSensitive: false,
-      ).firstMatch(trimmed);
-      if (totalMatch != null) {
-        final totalBytes = _parseByteSize(
-          totalMatch.group(1) ?? '',
-          totalMatch.group(2) ?? '',
-        );
-        if (totalBytes != null && totalBytes > 0) {
-          task.totalBytes = totalBytes;
-          task.receivedBytes = (totalBytes * task.progress).round();
-        }
-      }
+      task.statusDetail = 'YouTube：yt-dlp 下载中…';
       onProgressUpdated();
-    }
 
-    Future<void> drainStream(
-      Stream<List<int>> stream, {
-      required bool isStderr,
-    }) async {
-      final lines = utf8.decoder
-          .bind(stream)
-          .transform(const LineSplitter())
-          .handleError((_) {});
-      await for (final line in lines) {
-        maybeCancel();
-        if (isStderr) {
-          stderrBuffer.writeln(line);
-        } else {
-          stdoutBuffer.writeln(line);
+      final stderrBuffer = StringBuffer();
+      final stdoutBuffer = StringBuffer();
+      final reportedPaths = <String>{};
+      var canceled = false;
+
+      void maybeCancel() {
+        if (!canceled && isCancelRequested()) {
+          canceled = true;
+          process.kill(ProcessSignal.sigterm);
         }
-        handleProgressLine(line);
       }
-    }
 
-    int exitCode;
-    try {
-      await Future.wait([
-        drainStream(process.stdout, isStderr: false),
-        drainStream(process.stderr, isStderr: true),
-      ]);
-      maybeCancel();
-      exitCode = await process.exitCode;
-    } on Object catch (error) {
-      task.addLog(
-        'lib/source_parser/download_engines/youtube_download_engine.dart#_downloadViaYtDlp: stream mode failed, fallback to legacy mode error=$error',
-      );
-      process.kill(ProcessSignal.sigterm);
-        return _downloadViaYtDlpLegacy(
-          task: task,
-          directory: directory,
-          args: args,
-          beforePaths: beforePaths,
-          processRunner: processRunner,
-          reportedPaths: reportedPaths,
-          onProgressUpdated: onProgressUpdated,
-          isCancelRequested: isCancelRequested,
-        );
-    }
-    task.addLog(
-      'lib/source_parser/download_engines/youtube_download_engine.dart#_downloadViaYtDlp: exit=$exitCode',
-    );
-    if (canceled) {
-      throw const DownloadCanceledException();
-    }
-    if (exitCode != 0) {
-      final err = stderrBuffer.toString().trim();
-      final out = stdoutBuffer.toString().trim();
-      final detail = err.isNotEmpty ? err : out;
-      if (_isProxyConnectionFailure(detail)) {
+      void handleProgressLine(String line) {
+        maybeCancel();
+        final trimmed = line.trim();
+        _collectReportedPath(trimmed, reportedPaths);
+        final progressMatch = RegExp(
+          r'\[download\]\s+(\d+(?:\.\d+)?)%',
+        ).firstMatch(trimmed);
+        if (progressMatch == null) {
+          return;
+        }
+
+        final percent = double.tryParse(progressMatch.group(1) ?? '');
+        if (percent == null) {
+          return;
+        }
+
+        final clampedPercent = percent.clamp(0, 100);
+        task.progress = clampedPercent / 100;
+        task.statusDetail = null;
+
+        final totalMatch = RegExp(
+          r'of\s+([0-9.]+)([KMGTP]i?B)',
+          caseSensitive: false,
+        ).firstMatch(trimmed);
+        if (totalMatch != null) {
+          final totalBytes = _parseByteSize(
+            totalMatch.group(1) ?? '',
+            totalMatch.group(2) ?? '',
+          );
+          if (totalBytes != null && totalBytes > 0) {
+            task.totalBytes = totalBytes;
+            task.receivedBytes = (totalBytes * task.progress).round();
+          }
+        }
+        onProgressUpdated();
+      }
+
+      Future<void> drainStream(
+        Stream<List<int>> stream, {
+        required bool isStderr,
+      }) async {
+        final lines = utf8.decoder
+            .bind(stream)
+            .transform(const LineSplitter())
+            .handleError((_) {});
+        await for (final line in lines) {
+          maybeCancel();
+          if (isStderr) {
+            stderrBuffer.writeln(line);
+          } else {
+            stdoutBuffer.writeln(line);
+          }
+          handleProgressLine(line);
+        }
+      }
+
+      int exitCode;
+      try {
+        await Future.wait([
+          drainStream(process.stdout, isStderr: false),
+          drainStream(process.stderr, isStderr: true),
+        ]);
+        maybeCancel();
+        exitCode = await process.exitCode;
+      } on Object catch (error) {
         task.addLog(
-          'lib/source_parser/download_engines/youtube_download_engine.dart#_downloadViaYtDlp: detected proxy failure, retry with --proxy ""',
+          'lib/source_parser/download_engines/youtube_download_engine.dart#_downloadViaYtDlp: stream mode failed, fallback to legacy mode error=$error',
         );
-        final noProxyArgs = [...args, '--proxy', ''];
+        process.kill(ProcessSignal.sigterm);
         return _downloadViaYtDlpLegacy(
           task: task,
-          directory: directory,
-          args: noProxyArgs,
-          beforePaths: beforePaths,
+          plan: plan,
+          args: args,
           processRunner: processRunner,
           reportedPaths: reportedPaths,
           onProgressUpdated: onProgressUpdated,
-          allowProxyRetry: false,
           isCancelRequested: isCancelRequested,
         );
       }
-      throw DownloadException(_friendlyYtDlpError(detail, exitCode));
-    }
+      task.addLog(
+        'lib/source_parser/download_engines/youtube_download_engine.dart#_downloadViaYtDlp: exit=$exitCode',
+      );
+      if (canceled) {
+        throw const DownloadCanceledException();
+      }
+      if (exitCode != 0) {
+        final err = stderrBuffer.toString().trim();
+        final out = stdoutBuffer.toString().trim();
+        final detail = err.isNotEmpty ? err : out;
+        if (_isProxyConnectionFailure(detail)) {
+          task.addLog(
+            'lib/source_parser/download_engines/youtube_download_engine.dart#_downloadViaYtDlp: detected proxy failure, retry with --proxy ""',
+          );
+          final noProxyArgs = [...args, '--proxy', ''];
+          return _downloadViaYtDlpLegacy(
+            task: task,
+            plan: plan,
+            args: noProxyArgs,
+            processRunner: processRunner,
+            reportedPaths: reportedPaths,
+            onProgressUpdated: onProgressUpdated,
+            allowProxyRetry: false,
+            isCancelRequested: isCancelRequested,
+          );
+        }
+        throw DownloadException(_friendlyYtDlpError(detail, exitCode));
+      }
 
-    return _pickDownloadedFileAndUpdateTask(
-      task: task,
-      directory: directory,
-      beforePaths: beforePaths,
-      reportedPaths: reportedPaths,
-      onProgressUpdated: onProgressUpdated,
-    );
+      return _finalizeYtDlpDownload(
+        task: task,
+        directory: directory,
+        plan: plan,
+        reportedPaths: reportedPaths,
+        onProgressUpdated: onProgressUpdated,
+      );
+    } on DownloadCanceledException {
+      await _deleteDirectoryIfExists(plan.workspaceDirectory);
+      rethrow;
+    } on Object {
+      await _deleteDirectoryIfExists(plan.workspaceDirectory);
+      rethrow;
+    }
   }
 
   List<String> _buildYtDlpArgs({
     required DownloadTask task,
-    required Directory directory,
+    required String outputTemplate,
     required DownloadSettings settings,
   }) {
-    final outputTemplate = '${directory.path}/%(title)s.%(ext)s';
     final ffmpegLocation = _existingExecutablePath('ffmpeg');
 
     return <String>[
@@ -430,6 +546,156 @@ class YouTubeDownloadEngine extends DownloadEngine {
       outputTemplate,
       task.resource.url,
     ];
+  }
+
+  Future<_YtDlpPlan> _prepareYtDlpPlan(
+    DownloadTask task,
+    Directory directory,
+  ) async {
+    final workspaceDirectory = Directory(
+      '${directory.path}/.videodownloader_youtube/${task.id}',
+    );
+    await _deleteDirectoryIfExists(workspaceDirectory);
+    await workspaceDirectory.create(recursive: true);
+    final suggestedBaseName = _suggestYouTubeBaseName(task);
+    task.fileName = '$suggestedBaseName.mp4';
+    task.filePath = null;
+    task.progress = 0;
+    task.receivedBytes = 0;
+    task.totalBytes = null;
+    task.addLog(
+      'lib/source_parser/download_engines/youtube_download_engine.dart#_prepareYtDlpPlan: '
+      'workspace=${workspaceDirectory.path} target=${task.fileName}',
+    );
+    return _YtDlpPlan(
+      targetDirectory: directory,
+      workspaceDirectory: workspaceDirectory,
+      outputTemplate: '${workspaceDirectory.path}/download.%(ext)s',
+      suggestedBaseName: suggestedBaseName,
+    );
+  }
+
+  Future<File> _finalizeYtDlpDownload({
+    required DownloadTask task,
+    required Directory directory,
+    required _YtDlpPlan plan,
+    required Set<String> reportedPaths,
+    required void Function() onProgressUpdated,
+  }) async {
+    try {
+      final stagedFile = await _pickStagedDownloadedFile(
+        task: task,
+        workspaceDirectory: plan.workspaceDirectory,
+        reportedPaths: reportedPaths,
+      );
+      final ext = _resolvedExtension(stagedFile.path);
+      final targetFile = await _uniqueFile(
+        directory,
+        '${plan.suggestedBaseName}.$ext',
+      );
+      final movedFile = await _moveFile(stagedFile, targetFile);
+      task.fileName = movedFile.uri.pathSegments.last;
+      task.filePath = movedFile.path;
+      task.progress = 1;
+      task.totalBytes = await movedFile.length();
+      task.receivedBytes = task.totalBytes ?? 0;
+      onProgressUpdated();
+      return movedFile;
+    } finally {
+      await _deleteDirectoryIfExists(plan.workspaceDirectory);
+    }
+  }
+
+  Future<File> _pickStagedDownloadedFile({
+    required DownloadTask task,
+    required Directory workspaceDirectory,
+    required Set<String> reportedPaths,
+  }) async {
+    for (final path in reportedPaths.toList().reversed) {
+      final candidate = File(path);
+      if (await candidate.exists()) {
+        return candidate;
+      }
+    }
+
+    final workspaceFiles = await _listFiles(
+      workspaceDirectory,
+      recursive: false,
+    );
+    final mediaFiles = workspaceFiles
+        .where((file) => !_isTemporaryYtDlpArtifact(file.path))
+        .where((file) => !_isAuxiliaryYtDlpFile(file.path))
+        .toList();
+    if (mediaFiles.isEmpty) {
+      task.addLog(
+        'lib/source_parser/download_engines/youtube_download_engine.dart#_pickStagedDownloadedFile: '
+        'empty_workspace workspace=${workspaceDirectory.path} files=${workspaceFiles.map((file) => file.path).join(" | ")}',
+      );
+      throw const DownloadException('yt-dlp 已执行成功，但当前任务工作区没有找到下载结果');
+    }
+    mediaFiles.sort(
+      (a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()),
+    );
+    if (mediaFiles.length > 1) {
+      task.addLog(
+        'lib/source_parser/download_engines/youtube_download_engine.dart#_pickStagedDownloadedFile: '
+        'multiple_outputs files=${mediaFiles.map((file) => file.path).join(" | ")}',
+      );
+    }
+    return mediaFiles.first;
+  }
+
+  Future<File> _moveFile(File source, File target) async {
+    try {
+      return await source.rename(target.path);
+    } on FileSystemException {
+      final copied = await source.copy(target.path);
+      await source.deleteIfExists();
+      return copied;
+    }
+  }
+
+  Future<void> _deleteDirectoryIfExists(Directory directory) async {
+    if (await directory.exists()) {
+      await directory.delete(recursive: true);
+    }
+  }
+
+  String _suggestYouTubeBaseName(DownloadTask task) {
+    final rawTitle = task.resource.title.trim();
+    final strippedTitle = rawTitle
+        .replaceFirst(RegExp(r'^YouTube\s*(视频|Video)\s*[：:]\s*'), '')
+        .trim();
+    final preferredTitle =
+        strippedTitle.isEmpty || strippedTitle.toLowerCase() == 'youtube video'
+        ? task.resource.youtubeVideoId ?? 'youtube_video'
+        : strippedTitle;
+    final sanitized = preferredTitle
+        .replaceAll(RegExp(r'[\\/:*?"<>|]+'), '_')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    return sanitized.isEmpty ? 'youtube_video' : sanitized;
+  }
+
+  static String _resolvedExtension(String path) {
+    final name = path.split('/').last;
+    final dotIndex = name.lastIndexOf('.');
+    if (dotIndex < 0 || dotIndex == name.length - 1) {
+      return 'mp4';
+    }
+    final ext = name.substring(dotIndex + 1).trim().toLowerCase();
+    if (ext.isEmpty || ext.length > 8) {
+      return 'mp4';
+    }
+    return ext;
+  }
+
+  static bool _isAuxiliaryYtDlpFile(String path) {
+    final lowered = path.toLowerCase();
+    return lowered.endsWith('.json') ||
+        lowered.endsWith('.description') ||
+        lowered.endsWith('.srt') ||
+        lowered.endsWith('.vtt');
   }
 
   static String _friendlyYouTubeError(Object error) {
@@ -499,14 +765,19 @@ class YouTubeDownloadEngine extends DownloadEngine {
     ];
   }
 
-  static Future<Set<String>> _listFilePaths(Directory directory) async {
-    final files = await _listFiles(directory);
-    return files.map((file) => file.path).toSet();
+  static Future<List<File>> _listFiles(
+    Directory directory, {
+    bool recursive = false,
+  }) async {
+    final entities = await directory.list(recursive: recursive).toList();
+    return entities.whereType<File>().toList();
   }
 
-  static Future<List<File>> _listFiles(Directory directory) async {
-    final entities = await directory.list(recursive: false).toList();
-    return entities.whereType<File>().toList();
+  static bool _isTemporaryYtDlpArtifact(String path) {
+    final lowered = path.toLowerCase();
+    return lowered.endsWith('.part') ||
+        lowered.endsWith('.ytdl') ||
+        lowered.endsWith('.temp');
   }
 
   static int? _parseByteSize(String numberText, String unitText) {
@@ -533,9 +804,8 @@ class YouTubeDownloadEngine extends DownloadEngine {
 
   Future<File> _downloadViaYtDlpLegacy({
     required DownloadTask task,
-    required Directory directory,
+    required _YtDlpPlan plan,
     required List<String> args,
-    required Set<String> beforePaths,
     required ProcessRunner processRunner,
     required Set<String> reportedPaths,
     required void Function() onProgressUpdated,
@@ -560,9 +830,8 @@ class YouTubeDownloadEngine extends DownloadEngine {
         final noProxyArgs = [...args, '--proxy', ''];
         return _downloadViaYtDlpLegacy(
           task: task,
-          directory: directory,
+          plan: plan,
           args: noProxyArgs,
-          beforePaths: beforePaths,
           processRunner: processRunner,
           reportedPaths: reportedPaths,
           onProgressUpdated: onProgressUpdated,
@@ -574,51 +843,13 @@ class YouTubeDownloadEngine extends DownloadEngine {
     }
     _collectReportedPath((result.stdout ?? '').toString(), reportedPaths);
     _collectReportedPath((result.stderr ?? '').toString(), reportedPaths);
-    return _pickDownloadedFileAndUpdateTask(
+    return _finalizeYtDlpDownload(
       task: task,
-      directory: directory,
-      beforePaths: beforePaths,
+      directory: plan.targetDirectory,
+      plan: plan,
       reportedPaths: reportedPaths,
       onProgressUpdated: onProgressUpdated,
     );
-  }
-
-  Future<File> _pickDownloadedFileAndUpdateTask({
-    required DownloadTask task,
-    required Directory directory,
-    required Set<String> beforePaths,
-    required Set<String> reportedPaths,
-    required void Function() onProgressUpdated,
-  }) async {
-    final afterFiles = await _listFiles(directory);
-    final createdFiles = afterFiles
-        .where((file) => !beforePaths.contains(file.path))
-        .toList();
-    File? file;
-    if (createdFiles.isNotEmpty) {
-      createdFiles.sort(
-        (a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()),
-      );
-      file = createdFiles.first;
-    } else {
-      for (final path in reportedPaths.toList().reversed) {
-        final candidate = File(path);
-        if (await candidate.exists()) {
-          file = candidate;
-          break;
-        }
-      }
-    }
-    if (file == null) {
-      throw const DownloadException('yt-dlp 已执行成功，但未定位到输出文件');
-    }
-    task.fileName = file.uri.pathSegments.last;
-    task.filePath = file.path;
-    task.progress = 1;
-    task.totalBytes = await file.length();
-    task.receivedBytes = task.totalBytes ?? 0;
-    onProgressUpdated();
-    return file;
   }
 
   static void _collectReportedPath(String raw, Set<String> collector) {
@@ -675,6 +906,20 @@ extension on File {
       await delete();
     }
   }
+}
+
+final class _YtDlpPlan {
+  const _YtDlpPlan({
+    required this.targetDirectory,
+    required this.workspaceDirectory,
+    required this.outputTemplate,
+    required this.suggestedBaseName,
+  });
+
+  final Directory targetDirectory;
+  final Directory workspaceDirectory;
+  final String outputTemplate;
+  final String suggestedBaseName;
 }
 
 class _NonClosingHttpClient extends http.BaseClient {

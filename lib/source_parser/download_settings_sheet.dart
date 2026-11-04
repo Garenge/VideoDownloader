@@ -35,11 +35,13 @@ class _DownloadSettingsDialog extends StatefulWidget {
   final DownloadSettingsApplyCallback onApply;
 
   @override
-  State<_DownloadSettingsDialog> createState() => _DownloadSettingsDialogState();
+  State<_DownloadSettingsDialog> createState() =>
+      _DownloadSettingsDialogState();
 }
 
 class _DownloadSettingsDialogState extends State<_DownloadSettingsDialog> {
   late bool _enableYtDlpFallback;
+  late bool _preferYtDlpForYouTube;
   late final TextEditingController _concurrencyController;
   late final TextEditingController _retriesController;
   late final TextEditingController _fragmentRetriesController;
@@ -50,6 +52,7 @@ class _DownloadSettingsDialogState extends State<_DownloadSettingsDialog> {
     super.initState();
     final settings = widget.initialSettings;
     _enableYtDlpFallback = settings.enableYtDlpFallback;
+    _preferYtDlpForYouTube = settings.preferYtDlpForYouTube;
     _concurrencyController = TextEditingController(
       text: settings.ytDlpConcurrency.toString(),
     );
@@ -109,6 +112,9 @@ class _DownloadSettingsDialogState extends State<_DownloadSettingsDialog> {
 
     final settings = DownloadSettings(
       enableYtDlpFallback: _enableYtDlpFallback,
+      preferYtDlpForYouTube: _enableYtDlpFallback
+          ? _preferYtDlpForYouTube
+          : false,
       ytDlpConcurrency: concurrency,
       ytDlpRetries: retries,
       ytDlpFragmentRetries: fragmentRetries,
@@ -152,17 +158,42 @@ class _DownloadSettingsDialogState extends State<_DownloadSettingsDialog> {
                 ),
               ),
             ],
+            const SizedBox(height: 6),
+            Text(
+              'X 推文下载依赖 yt-dlp；下方参数也会复用到 YouTube 的 yt-dlp 流程。',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
             const SizedBox(height: 12),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('YouTube 使用 yt-dlp 兜底'),
-              subtitle: const Text('当 youtube_explode_dart 失败时自动尝试'),
+              title: const Text('启用 YouTube 应用内回退'),
+              subtitle: const Text(
+                '在 built-in priority 模式下自动切换到 youtube_explode_dart',
+              ),
               value: _enableYtDlpFallback,
               onChanged: (value) {
                 setState(() {
                   _enableYtDlpFallback = value;
+                  if (!value) {
+                    _preferYtDlpForYouTube = false;
+                  }
                 });
               },
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('YouTube 优先使用 yt-dlp'),
+              subtitle: const Text('使用独立下载流程；失败时直接返回明确错误'),
+              value: _enableYtDlpFallback && _preferYtDlpForYouTube,
+              onChanged: _enableYtDlpFallback
+                  ? (value) {
+                      setState(() {
+                        _preferYtDlpForYouTube = value;
+                      });
+                    }
+                  : null,
             ),
             const SizedBox(height: 12),
             Row(
@@ -216,12 +247,8 @@ class _DownloadSettingsDialogState extends State<_DownloadSettingsDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('取消'),
         ),
-        FilledButton(
-          onPressed: _handleSave,
-          child: const Text('保存'),
-        ),
+        FilledButton(onPressed: _handleSave, child: const Text('保存')),
       ],
     );
   }
 }
-

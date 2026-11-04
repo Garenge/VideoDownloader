@@ -84,8 +84,8 @@ String _youtubeVideoResourceTitle(String? title) {
 
 String _youtubeVideoSizeHint(String? authorName) {
   if (authorName == null || authorName.isEmpty) {
-    return 'youtube_explode · 点击加入下载队列';
+    return 'YouTube 下载任务 · 点击加入下载队列';
   }
 
-  return 'youtube_explode · $authorName · 点击加入下载队列';
+  return 'YouTube 下载任务 · $authorName · 点击加入下载队列';
 }

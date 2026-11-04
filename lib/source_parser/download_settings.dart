@@ -1,6 +1,7 @@
 class DownloadSettings {
   const DownloadSettings({
     required this.enableYtDlpFallback,
+    required this.preferYtDlpForYouTube,
     required this.ytDlpConcurrency,
     required this.ytDlpRetries,
     required this.ytDlpFragmentRetries,
@@ -8,23 +9,33 @@ class DownloadSettings {
 
   const DownloadSettings.defaults()
     : enableYtDlpFallback = true,
+      preferYtDlpForYouTube = true,
       ytDlpConcurrency = 8,
       ytDlpRetries = 10,
       ytDlpFragmentRetries = 50;
 
   final bool enableYtDlpFallback;
+  final bool preferYtDlpForYouTube;
   final int ytDlpConcurrency;
   final int ytDlpRetries;
   final int ytDlpFragmentRetries;
 
   DownloadSettings copyWith({
     bool? enableYtDlpFallback,
+    bool? preferYtDlpForYouTube,
     int? ytDlpConcurrency,
     int? ytDlpRetries,
     int? ytDlpFragmentRetries,
   }) {
+    final nextEnableYtDlpFallback =
+        enableYtDlpFallback ?? this.enableYtDlpFallback;
+    final nextPreferYtDlpForYouTube = nextEnableYtDlpFallback
+        ? (preferYtDlpForYouTube ?? this.preferYtDlpForYouTube)
+        : false;
+
     return DownloadSettings(
-      enableYtDlpFallback: enableYtDlpFallback ?? this.enableYtDlpFallback,
+      enableYtDlpFallback: nextEnableYtDlpFallback,
+      preferYtDlpForYouTube: nextPreferYtDlpForYouTube,
       ytDlpConcurrency: ytDlpConcurrency ?? this.ytDlpConcurrency,
       ytDlpRetries: ytDlpRetries ?? this.ytDlpRetries,
       ytDlpFragmentRetries: ytDlpFragmentRetries ?? this.ytDlpFragmentRetries,
@@ -34,14 +45,21 @@ class DownloadSettings {
   static DownloadSettings fromJson(Map<String, Object?> json) {
     final defaults = const DownloadSettings.defaults();
     return DownloadSettings(
-      enableYtDlpFallback:
-          json['enableYtDlpFallback'] is bool
+      enableYtDlpFallback: json['enableYtDlpFallback'] is bool
+          ? json['enableYtDlpFallback'] as bool
+          : defaults.enableYtDlpFallback,
+      preferYtDlpForYouTube:
+          (json['preferYtDlpForYouTube'] is bool
+              ? json['preferYtDlpForYouTube'] as bool
+              : defaults.preferYtDlpForYouTube) &&
+          (json['enableYtDlpFallback'] is bool
               ? json['enableYtDlpFallback'] as bool
-              : defaults.enableYtDlpFallback,
-      ytDlpConcurrency: _readInt(json['ytDlpConcurrency']) ??
-          defaults.ytDlpConcurrency,
+              : defaults.enableYtDlpFallback),
+      ytDlpConcurrency:
+          _readInt(json['ytDlpConcurrency']) ?? defaults.ytDlpConcurrency,
       ytDlpRetries: _readInt(json['ytDlpRetries']) ?? defaults.ytDlpRetries,
-      ytDlpFragmentRetries: _readInt(json['ytDlpFragmentRetries']) ??
+      ytDlpFragmentRetries:
+          _readInt(json['ytDlpFragmentRetries']) ??
           defaults.ytDlpFragmentRetries,
     );
   }
@@ -49,6 +67,7 @@ class DownloadSettings {
   Map<String, Object?> toJson() {
     return {
       'enableYtDlpFallback': enableYtDlpFallback,
+      'preferYtDlpForYouTube': preferYtDlpForYouTube,
       'ytDlpConcurrency': ytDlpConcurrency,
       'ytDlpRetries': ytDlpRetries,
       'ytDlpFragmentRetries': ytDlpFragmentRetries,
@@ -116,4 +135,3 @@ class DownloadToolStatus {
     );
   }
 }
-

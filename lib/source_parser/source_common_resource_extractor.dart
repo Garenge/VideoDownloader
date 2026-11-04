@@ -23,7 +23,8 @@ List<SourceResource> _mergeResources(List<SourceResource> resources) {
   final mergedResources = <SourceResource>[];
 
   for (final resource in resources) {
-    final key = '${resource.type.name}|${resource.url}';
+    final key =
+        '${resource.type.name}|${resource.url}|${resource.youtubeVideoId ?? ''}|${resource.requiresYtDlp}';
     if (seenKeys.add(key)) {
       mergedResources.add(resource);
     }
@@ -212,8 +213,13 @@ void _extractInlineScriptResources(
     final normalizedText = _normalizeEscapedScriptText(text);
 
     final scriptBaseUrls = _collectScriptBaseUrls(normalizedText);
+    final scriptStringVariables = _collectScriptStringVariables(normalizedText);
 
-    for (final match in _inlineMediaKeyValuePattern.allMatches(normalizedText)) {
+    _extractInlineQualityMediaObjects(normalizedText, collector);
+
+    for (final match in _inlineMediaKeyValuePattern.allMatches(
+      normalizedText,
+    )) {
       final key = (match.group(1) ?? '').toLowerCase();
       final rawUrl = match.group(2);
       if (rawUrl == null || rawUrl.trim().isEmpty) {
@@ -227,6 +233,13 @@ void _extractInlineScriptResources(
         sizeHint: 'inline script key',
       );
     }
+
+    _extractInlineConcatenatedMediaResources(
+      normalizedText,
+      collector,
+      scriptStringVariables: scriptStringVariables,
+      scriptBaseUrls: scriptBaseUrls,
+    );
 
     for (final match in _inlineRelativeMediaKeyValuePattern.allMatches(
       normalizedText,
@@ -274,6 +287,7 @@ void _collectJsonResource(
   String scriptType = 'application/ld+json',
   String? currentKey,
   List<String> keyPath = const [],
+  String? qualityHint,
 }) {
   if (value is String) {
     final key = currentKey?.trim().toLowerCase();
@@ -286,6 +300,7 @@ void _collectJsonResource(
       collector,
       scriptType: scriptType,
       keyPath: keyPath,
+      qualityHint: qualityHint,
     );
     return;
   }
@@ -298,6 +313,7 @@ void _collectJsonResource(
         scriptType: scriptType,
         currentKey: currentKey,
         keyPath: keyPath,
+        qualityHint: qualityHint,
       );
     }
     return;
@@ -306,6 +322,8 @@ void _collectJsonResource(
   if (value is! Map) {
     return;
   }
+
+  final nextQualityHint = _qualityHintForJsonMap(value) ?? qualityHint;
 
   for (final entry in value.entries) {
     final key = entry.key.toString().toLowerCase();
@@ -318,7 +336,99 @@ void _collectJsonResource(
       scriptType: scriptType,
       currentKey: key,
       keyPath: nextPath,
+      qualityHint: nextQualityHint,
     );
+  }
+}
+
+void _extractInlineQualityMediaObjects(
+  String text,
+  _ResourceCollector collector,
+) {
+  for (final match in _inlineObjectPattern.allMatches(text)) {
+    final objectText = match.group(0);
+    if (objectText == null || objectText.trim().isEmpty) {
+      continue;
+    }
+
+    final qualityHint = _qualityHintForInlineObject(objectText);
+    if (qualityHint == null) {
+      continue;
+    }
+
+    for (final mediaMatch in _inlineMediaKeyValuePattern.allMatches(
+      objectText,
+    )) {
+      final key = (mediaMatch.group(1) ?? '').toLowerCase();
+      final rawUrl = mediaMatch.group(2);
+      if (rawUrl == null || rawUrl.trim().isEmpty) {
+        continue;
+      }
+
+      final resourceType = _typeFromUrlOrMime(rawUrl, key);
+      collector.add(
+        url: rawUrl,
+        type: resourceType,
+        title: _titleForScriptKey(key, resourceType),
+        sizeHint: _scriptSizeHint('inline script quality', rawUrl, qualityHint),
+      );
+    }
+  }
+}
+
+void _extractInlineConcatenatedMediaResources(
+  String text,
+  _ResourceCollector collector, {
+  required Map<String, String> scriptStringVariables,
+  required Set<String> scriptBaseUrls,
+}) {
+  final seenResolvedUrls = <String>{};
+
+  for (final match in _inlineConcatenatedMediaKeyValuePattern.allMatches(
+    text,
+  )) {
+    final key = (match.group(1) ?? '').toLowerCase();
+    final expression = match.group(2);
+    if (expression == null || expression.trim().isEmpty) {
+      continue;
+    }
+
+    final resolvedValue = _resolveScriptStringExpression(
+      expression,
+      scriptStringVariables,
+    );
+    if (resolvedValue == null || resolvedValue.isEmpty) {
+      continue;
+    }
+
+    final candidateUrls = <String>{resolvedValue};
+    if (!_looksAbsoluteOrRootRelativeUrl(resolvedValue)) {
+      for (final baseUrl in scriptBaseUrls) {
+        final combinedUrl = _combineScriptBaseAndPath(baseUrl, resolvedValue);
+        if (combinedUrl != null) {
+          candidateUrls.add(combinedUrl);
+        }
+      }
+    }
+
+    for (final candidateUrl in candidateUrls) {
+      if (!seenResolvedUrls.add('$key|$candidateUrl')) {
+        continue;
+      }
+
+      final resourceType = _typeFromUrlOrMime(candidateUrl, key);
+      if (resourceType == SourceResourceType.other &&
+          !_looksDownloadable(candidateUrl)) {
+        continue;
+      }
+
+      collector.add(
+        url: candidateUrl,
+        type: resourceType,
+        title: _titleForScriptKey(key, resourceType),
+        sizeHint: 'inline script concatenated',
+      );
+    }
   }
 }
 
@@ -328,14 +438,14 @@ void _addJsonStringResource(
   _ResourceCollector collector, {
   required String scriptType,
   required List<String> keyPath,
-}
-) {
+  required String? qualityHint,
+}) {
   if (_isJsonImageKey(key) || _isGenericImageValueKey(key, keyPath)) {
     collector.add(
       url: value,
       type: SourceResourceType.image,
       title: _jsonImageTitle(scriptType),
-      sizeHint: _jsonSizeHint(scriptType, value),
+      sizeHint: _jsonSizeHint(scriptType, value, qualityHint: qualityHint),
     );
   }
 
@@ -345,7 +455,7 @@ void _addJsonStringResource(
       url: value,
       type: type,
       title: _jsonVideoTitle(scriptType, key, type),
-      sizeHint: _jsonSizeHint(scriptType, value),
+      sizeHint: _jsonSizeHint(scriptType, value, qualityHint: qualityHint),
     );
   }
 }
@@ -479,11 +589,121 @@ String _attributeSizeHint(String key, String value) {
   return 'data attribute';
 }
 
-String _jsonSizeHint(String scriptType, String value) {
-  if (scriptType == 'application/ld+json') {
-    return _extensionHint(value);
+String _jsonSizeHint(String scriptType, String value, {String? qualityHint}) {
+  final baseHint = scriptType == 'application/ld+json'
+      ? _extensionHint(value)
+      : 'json script · ${_extensionHint(value)}';
+  if (qualityHint == null || qualityHint.isEmpty) {
+    return baseHint;
   }
-  return 'json script · ${_extensionHint(value)}';
+  return '$baseHint · $qualityHint';
+}
+
+String _scriptSizeHint(String baseHint, String value, String? qualityHint) {
+  final extensionHint = _extensionHint(value);
+  if (qualityHint == null || qualityHint.isEmpty) {
+    return baseHint;
+  }
+  if (extensionHint == 'resource') {
+    return '$baseHint · $qualityHint';
+  }
+  return '$baseHint · $extensionHint · $qualityHint';
+}
+
+String? _qualityHintForJsonMap(Map<Object?, Object?> value) {
+  final entries = <String, Object?>{};
+  for (final entry in value.entries) {
+    entries[entry.key.toString().toLowerCase()] = entry.value;
+  }
+
+  return _qualityHintFromValue(entries['quality']) ??
+      _qualityHintFromValue(entries['qualitylabel']) ??
+      _qualityHintFromValue(entries['quality_label']) ??
+      _qualityHintFromValue(entries['definition']) ??
+      _qualityHintFromValue(entries['label']) ??
+      _qualityHintFromValue(entries['resolution']) ??
+      _qualityHintFromValue(entries['res']) ??
+      _heightQualityHint(entries['height']);
+}
+
+String? _qualityHintForInlineObject(String objectText) {
+  for (final match in _inlineQualityKeyValuePattern.allMatches(objectText)) {
+    final key = (match.group(1) ?? '').toLowerCase();
+    final rawValue = match.group(2) ?? match.group(3);
+    final qualityHint = _qualityHintFromValue(rawValue);
+    if (qualityHint != null) {
+      return qualityHint;
+    }
+
+    if (key == 'height') {
+      final heightHint = _heightQualityHint(rawValue);
+      if (heightHint != null) {
+        return heightHint;
+      }
+    }
+  }
+  return null;
+}
+
+String? _qualityHintFromValue(Object? value) {
+  if (value == null) {
+    return null;
+  }
+
+  if (value is num) {
+    return _heightQualityHint(value);
+  }
+
+  final text = value.toString().trim();
+  if (text.isEmpty || text.length > 32) {
+    return null;
+  }
+
+  final normalized = text.replaceAll('_', ' ');
+  final resolutionMatch = RegExp(
+    r'(\d{3,4})\s*[xX]\s*(\d{3,4})',
+  ).firstMatch(normalized);
+  if (resolutionMatch != null) {
+    final height = int.tryParse(resolutionMatch.group(2) ?? '');
+    return _heightQualityHint(height);
+  }
+
+  final pixelMatch = RegExp(r'\b(\d{3,4})\s*[pP]\b').firstMatch(normalized);
+  if (pixelMatch != null) {
+    return '${pixelMatch.group(1)}p';
+  }
+
+  final heightOnly = int.tryParse(normalized);
+  if (heightOnly != null) {
+    return _heightQualityHint(heightOnly);
+  }
+
+  final lowered = normalized.toLowerCase();
+  if (lowered == 'sd' ||
+      lowered == 'hd' ||
+      lowered == 'fhd' ||
+      lowered == 'uhd' ||
+      lowered == '2k' ||
+      lowered == '4k' ||
+      lowered == '8k' ||
+      lowered.contains('清')) {
+    return normalized;
+  }
+
+  return null;
+}
+
+String? _heightQualityHint(Object? value) {
+  if (value == null) {
+    return null;
+  }
+
+  final height = value is num ? value.round() : int.tryParse(value.toString());
+  if (height == null || height < 144 || height > 8640) {
+    return null;
+  }
+
+  return '${height}p';
 }
 
 String _imageSizeHint(dom.Element element) {
@@ -637,11 +857,7 @@ String _jsonImageTitle(String scriptType) {
   return scriptType == 'application/ld+json' ? 'JSON-LD 图片' : 'JSON 图片资源';
 }
 
-String _jsonVideoTitle(
-  String scriptType,
-  String key,
-  SourceResourceType type,
-) {
+String _jsonVideoTitle(String scriptType, String key, SourceResourceType type) {
   if (scriptType == 'application/ld+json') {
     return _titleForType(type);
   }
@@ -728,6 +944,23 @@ final _inlineBaseUrlPattern = RegExp(
   caseSensitive: false,
 );
 
+final _inlineStringVariablePattern = RegExp(
+  r'''\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:"|')([^"'\\]*(?:\\.[^"'\\]*)*)(?:"|')''',
+  caseSensitive: false,
+);
+
+final _inlineConcatenatedMediaKeyValuePattern = RegExp(
+  r'''(?:"|')?(playUrl|play_url|playAddr|play_addr|videoUrl|video_url|hlsUrl|hls_url|dashUrl|dash_url|manifestUrl|manifest_url|streamUrl|stream_url|playbackUrl|playback_url|cover|coverUrl|cover_url|poster|posterUrl|poster_url|thumbnailUrl|thumbnail_url|src|url|file|path)(?:"|')?\s*[:=]\s*([A-Za-z_$"'\/][^,\r\n;}]*(?:\+[^,\r\n;}]*)+)''',
+  caseSensitive: false,
+);
+
+final _inlineObjectPattern = RegExp(r'\{[^{}]+\}', multiLine: true);
+
+final _inlineQualityKeyValuePattern = RegExp(
+  r'''(?:"|')?(quality|qualityLabel|quality_label|definition|label|resolution|res|height)(?:"|')?\s*[:=]\s*(?:(?:"|')([^"'\\]+)(?:"|')|(\d{3,4}))''',
+  caseSensitive: false,
+);
+
 Set<String> _collectScriptBaseUrls(String text) {
   final results = <String>{};
   for (final match in _inlineBaseUrlPattern.allMatches(text)) {
@@ -738,6 +971,79 @@ Set<String> _collectScriptBaseUrls(String text) {
     results.add(raw.trim());
   }
   return results;
+}
+
+Map<String, String> _collectScriptStringVariables(String text) {
+  final results = <String, String>{};
+  for (final match in _inlineStringVariablePattern.allMatches(text)) {
+    final key = match.group(1)?.trim().toLowerCase();
+    final rawValue = match.group(2)?.trim();
+    if (key == null || key.isEmpty || rawValue == null || rawValue.isEmpty) {
+      continue;
+    }
+    results[key] = rawValue;
+  }
+  return results;
+}
+
+String? _resolveScriptStringExpression(
+  String expression,
+  Map<String, String> scriptStringVariables,
+) {
+  final normalizedExpression = expression
+      .split(RegExp(r'[,;\r\n}]'))
+      .first
+      .trim();
+  if (normalizedExpression.isEmpty || !normalizedExpression.contains('+')) {
+    return null;
+  }
+
+  final buffer = StringBuffer();
+  for (final part in normalizedExpression.split('+')) {
+    final token = part.trim();
+    if (token.isEmpty) {
+      continue;
+    }
+
+    final quotedValue = _unquoteScriptStringToken(token);
+    if (quotedValue != null) {
+      buffer.write(quotedValue);
+      continue;
+    }
+
+    final variableValue = scriptStringVariables[token.toLowerCase()];
+    if (variableValue != null) {
+      buffer.write(variableValue);
+      continue;
+    }
+
+    return null;
+  }
+
+  final resolvedValue = buffer.toString().trim();
+  if (!_looksDownloadable(resolvedValue) &&
+      !_looksMediaMimeOrKeyword(expression, resolvedValue)) {
+    return null;
+  }
+  return resolvedValue;
+}
+
+String? _unquoteScriptStringToken(String token) {
+  if (token.length < 2) {
+    return null;
+  }
+  final quote = token[0];
+  if ((quote != '"' && quote != "'") || token[token.length - 1] != quote) {
+    return null;
+  }
+  return token.substring(1, token.length - 1);
+}
+
+bool _looksAbsoluteOrRootRelativeUrl(String value) {
+  return value.startsWith('http://') ||
+      value.startsWith('https://') ||
+      value.startsWith('//') ||
+      value.startsWith('/');
 }
 
 String? _combineScriptBaseAndPath(String baseUrl, String rawPath) {

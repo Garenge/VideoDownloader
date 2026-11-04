@@ -28,10 +28,12 @@ image, and other downloadable files, then show them by category for download.
   thumbnail cover when available.
 - YouTube parser also creates a downloadable "YouTube video" task when a valid
   video id is detected.
+- X status links now create a dedicated "X video" download task that runs
+  through `yt-dlp`.
 - Failed tasks can be retried directly from the queue panel.
 - YouTube download now uses a two-stage strategy:
   `youtube_explode_dart` first, then `yt-dlp` fallback when needed.
-- Platform-specific Douyin, X, and Bilibili parsers are not connected yet.
+- Platform-specific Douyin and Bilibili parsers are not connected yet.
 - YouTube platform parsing is in progress beyond metadata extraction.
 
 ## Development Roadmap
@@ -88,8 +90,8 @@ Acceptance:
 
 - Douyin: inspect share-page redirects, embedded page state, and exposed media
   URLs.
-- X: inspect page metadata and public media URLs that are present without
-  authentication.
+- X: create a dedicated status-download task and keep improving metadata /
+  public media extraction when available. Started.
 - YouTube: inspect public metadata, thumbnails, and exposed player/manifest data
   where allowed. Started.
 - Bilibili: inspect public page state, player metadata, thumbnails, and exposed
@@ -100,6 +102,8 @@ Acceptance:
 Acceptance:
 
 - YouTube parser can return public oEmbed thumbnail metadata. Done.
+- X parser can create a dedicated status download task for `x.com` /
+  `twitter.com` post URLs. Done.
 - Each platform parser can return at least thumbnails or metadata before full
   video extraction is attempted. Started.
 - Protected, signed, login-only, or DRM-like resources are labeled clearly.
@@ -155,6 +159,67 @@ Acceptance:
 With download and conversion task basics connected, the next highest-value work
 is to improve **resource understanding and post-download ergonomics** rather
 than opening more platform integrations immediately.
+
+## iOS Share-In Plan
+
+The longer-term mobile direction is to let users share X links from the X iOS
+app into VideoDownloader, then complete parsing and downloading inside our app.
+
+Recommended implementation order:
+
+1. **Phase 1: App link intake in the existing Flutter app**
+   - Add an iOS URL scheme / deep-link entry for the Runner app.
+   - Let the Flutter layer receive an incoming X link and prefill / auto-parse
+     it on launch.
+   - Keep this path available for manual testing before a Share Extension
+     exists.
+2. **Phase 2: iOS Share Extension**
+   - Add a native iOS Share Extension target.
+   - Accept shared URLs from the X app share sheet.
+   - Pass the shared link into the main app through an App Group or direct
+     handoff.
+3. **Phase 3: Share-driven UX polish**
+   - Auto-route users into the parser/downloader flow after share-in.
+   - Show clearer “received from share” state and recovery on relaunch.
+   - Optionally keep a lightweight intake history for shared links.
+
+Why this order:
+
+- Phase 1 is the minimum viable foundation and can be implemented directly in
+  the current Flutter app.
+- Phase 2 depends on native iOS extension wiring and is easier once the main
+  app already knows how to consume an external link.
+- Phase 3 improves ergonomics only after the transport path is stable.
+
+Current Phase 1 intake contract:
+
+- iOS URL scheme: `videodownloader://parse?url=<percent-encoded target url>`
+- Example:
+  `videodownloader://parse?url=https%3A%2F%2Fx.com%2FOpenAI%2Fstatus%2F123`
+- Expected behavior:
+  the app opens, prefills the target URL, and starts parsing automatically.
+
+Current Phase 2 share-in contract:
+
+- Share target: `VideoDownloader`
+- Expected source: X App share sheet, or any App that shares a web link / text
+- Current handoff path:
+  Share Extension extracts the first `http/https` URL, then opens
+  `videodownloader://parse?url=<shared url>` back into the main app
+- Current preference:
+  only accept `x.com` / `twitter.com` post links; if shared text contains
+  multiple links, prefer the first valid `.../status/...` entry
+
+Quick iPhone verification:
+
+1. Build and install the iOS App on device.
+2. In the X App, open a post and tap `Share`.
+3. Choose `VideoDownloader` in the iOS share sheet.
+4. Expect the main App to open and auto-start parsing the shared X link.
+5. If share-in fails, the extension should keep a visible error page instead
+   of disappearing immediately.
+6. After the main App opens, expect a visible `来自 iOS 分享` 提示条 and a
+   `查看日志` button so the intake log can be copied back for debugging.
 
 Recommended order:
 
@@ -239,33 +304,42 @@ human asks for it.
 For YouTube resources, download is no longer a single-path network request.
 Current strategy:
 
-1. Try `youtube_explode_dart` to fetch metadata + stream manifest and download
-   a selected stream.
-2. If that fails (403/429/playability/client-specific issues), automatically
-   fall back to local `yt-dlp`.
-3. If both fail, return a readable queue error message and allow manual retry.
+1. Default to an isolated `yt-dlp` workflow for X downloads and YouTube's
+   `yt-dlp` path.
+2. Each task downloads into its own temporary workspace and only moves the
+   final media file into the user-selected directory after success.
+3. When the app is configured for built-in priority, `youtube_explode_dart`
+   remains available as the alternate strategy.
+4. If the chosen strategy fails, return a readable queue error message and
+   allow manual retry.
 
 This improves reliability for real-world URLs such as Shorts or videos with
-unstable client behavior.
+unstable client behavior, while keeping each task's output deterministic.
 
-### Fallback details
+### Workflow details
 
-- `youtube_explode_dart` manifest tries multiple client combinations.
-- `yt-dlp` fallback runs with a defensive profile:
+- `yt-dlp` runs with a defensive profile:
   `--no-playlist -N 8 --retries 10 --fragment-retries 50 -f "bv*+ba/best" --merge-output-format mp4`.
-- Queue task metadata is updated from the actual downloaded file after fallback.
+- The app stages YouTube downloads inside per-task workspaces before moving the
+  final media file into the target directory.
+- X status downloads also stage `yt-dlp` output inside per-task workspaces
+  before moving the final file into the target directory.
+- `youtube_explode_dart` manifest mode still tries multiple client
+  combinations when that strategy is enabled.
 
 ### Operational note
 
-`yt-dlp` must be available in system `PATH` for fallback to work. If it is not
-installed, YouTube tasks can still succeed through `youtube_explode_dart`, but
-fallback will fail with an explicit error.
+`yt-dlp` must be available in system `PATH` for X downloads and YouTube's
+`yt-dlp` workflow. If it is not installed, X downloads will fail, and YouTube
+should be switched to built-in priority before retrying.
 
-## Troubleshooting (YouTube)
+## Troubleshooting (X / YouTube)
 
 - Error contains "请求过于频繁": wait and retry, or switch proxy route.
 - Error contains "拒绝访问/403": likely geo/account/policy limits on that stream.
 - Error contains "不可播放": age/region/copyright restrictions are likely.
+- Error contains "需要登录/Private/not found": the X post may be private,
+  deleted, or only visible when logged in.
 - Error shows `yt-dlp` not found: install `yt-dlp` and retry failed tasks.
 
 ## Step-by-step implementation plan
@@ -274,7 +348,7 @@ This project now follows a staged YouTube delivery plan:
 
 1. **Phase 1 (done/in progress)**
    - Retry support in queue UI and controller.
-   - YouTube dual-engine strategy (`youtube_explode_dart` + `yt-dlp` fallback).
+  - YouTube dedicated engine with isolated `yt-dlp` workflow by default.
    - Friendly error mapping for common YouTube failures.
    - README strategy + troubleshooting docs.
 2. **Phase 2**
@@ -290,9 +364,9 @@ This project now follows a staged YouTube delivery plan:
 
 - `DownloadQueueController` orchestrates tasks, progress reporting, cancel and retry.
 - `download_engines/YouTubeDownloadEngine` handles YouTube specifics:
-  - `youtube_explode_dart` stream download
-  - manifest client fallback
-  - optional `yt-dlp` fallback with configurable arguments
+  - isolated `yt-dlp` staging and final file handoff
+  - optional `youtube_explode_dart` strategy
+  - progress parsing, cancellation, and queue-friendly errors
 
 This separation keeps the queue stable while allowing YouTube download logic to
 iterate without touching unrelated queue code.
