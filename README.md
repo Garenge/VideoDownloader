@@ -35,9 +35,16 @@ described below differs from the iOS feature set.
   thumbnail cover when available.
 - YouTube parser also creates a downloadable "YouTube video" task when a valid
   video id is detected.
-- X status links now create a dedicated "X video" download task that runs
-  through `yt-dlp`.
+- X status links on macOS first resolve public photo and video attachments.
+  Photos use original image URLs and videos use the highest bitrate MP4;
+  when the public interface is unavailable, the desktop parser keeps its
+  `yt-dlp` video task fallback.
 - Failed tasks can be retried directly from the queue panel.
+- Queue tasks and individual history entries can be removed without deleting
+  completed files. Removing an active task cancels its download.
+- The file library reads actual download directories independently of history,
+  with search, date sorting, refresh, and confirmed file deletion. On iOS,
+  files support native video playback, image preview, and sharing.
 - YouTube download now uses a two-stage strategy:
   `youtube_explode_dart` first, then `yt-dlp` fallback when needed.
 - Platform-specific Douyin and Bilibili parsers are not connected yet.
@@ -211,10 +218,17 @@ Current Phase 2 share-in contract:
 - Share target: `VideoDownloader`
 - Expected source: X App share sheet, or any App that shares a web link / text
 - Current handoff path:
-  Share Extension saves the X link in an App Group and attempts to open
+  Share Extension atomically saves the X link to a file in the App Group container and attempts to open
   `videodownloader://parse?url=<shared url>` back into the main app.
   If the system does not open the host, the extension confirms the link is saved;
   opening the main app manually consumes it.
+  Storage errors distinguish an unavailable shared container from a file write
+  failure and display the specific error. A successful handoff consumes the file
+  once; a later share replaces any pending link.
+  For direct handoff, the extension locates `UIApplication` through the responder
+  chain (with a runtime lookup fallback) and calls `open(_:options:completionHandler:)`.
+  If that fails, it tries `NSExtensionContext.open`. This compatibility path is
+  intended for private distribution and requires device verification after iOS updates.
 - Current preference:
   only accept `x.com` / `twitter.com` post links; if shared text contains
   multiple links, prefer the first valid `.../status/...` entry
