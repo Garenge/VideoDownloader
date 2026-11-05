@@ -7,19 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A16F0030A16F0030A16F0030 /* IosXSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16F0000A16F0000A16F0000 /* IosXSessionTests.swift */; };
-		A16F0019A16F0019A16F0019 /* IosXLoginBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16F0009A16F0009A16F0009 /* IosXLoginBridge.swift */; };
-		A16F0018A16F0018A16F0018 /* IosXBrowserController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16F0008A16F0008A16F0008 /* IosXBrowserController.swift */; };
-		A16F0017A16F0017A16F0017 /* IosXMediaScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16F0007A16F0007A16F0007 /* IosXMediaScript.swift */; };
-		A16F0016A16F0016A16F0016 /* IosXSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16F0006A16F0006A16F0006 /* IosXSession.swift */; };
-		A15F0035A15F0035A15F0035 /* MediaTestFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = A15F0005A15F0005A15F0005 /* MediaTestFixtures.swift */; };
-		A15F0024A15F0024A15F0024 /* SharedLinkStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A15F0004A15F0004A15F0004 /* SharedLinkStore.swift */; };
-		A15F0014A15F0014A15F0014 /* SharedLinkStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A15F0004A15F0004A15F0004 /* SharedLinkStore.swift */; };
-		A15F0013A15F0013A15F0013 /* IosMediaMerger.swift in Sources */ = {isa = PBXBuildFile; fileRef = A15F0003A15F0003A15F0003 /* IosMediaMerger.swift */; };
-		A15F0012A15F0012A15F0012 /* IosFileExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A15F0002A15F0002A15F0002 /* IosFileExporter.swift */; };
-		A15F0011A15F0011A15F0011 /* IosMediaBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A15F0001A15F0001A15F0001 /* IosMediaBridge.swift */; };
-		A14F0010A14F0010A14F0010 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A14F0011A14F0011A14F0011 /* ShareViewController.swift */; };
-		A14F0012A14F0012A14F0012 /* ShareExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A14F0013A14F0013A14F0013 /* ShareExtension.appex */; };
 		1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */; };
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
 		3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */; };
@@ -30,16 +17,23 @@
 		97C146FC1CF9000F007C117D /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FA1CF9000F007C117D /* Main.storyboard */; };
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
+		A14F0010A14F0010A14F0010 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A14F0011A14F0011A14F0011 /* ShareViewController.swift */; };
+		A14F0012A14F0012A14F0012 /* ShareExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A14F0013A14F0013A14F0013 /* ShareExtension.appex */; };
+		A15F0011A15F0011A15F0011 /* IosMediaBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A15F0001A15F0001A15F0001 /* IosMediaBridge.swift */; };
+		A15F0012A15F0012A15F0012 /* IosFileExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A15F0002A15F0002A15F0002 /* IosFileExporter.swift */; };
+		A15F0013A15F0013A15F0013 /* IosMediaMerger.swift in Sources */ = {isa = PBXBuildFile; fileRef = A15F0003A15F0003A15F0003 /* IosMediaMerger.swift */; };
+		A15F0014A15F0014A15F0014 /* SharedLinkStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A15F0004A15F0004A15F0004 /* SharedLinkStore.swift */; };
+		A15F0024A15F0024A15F0024 /* SharedLinkStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A15F0004A15F0004A15F0004 /* SharedLinkStore.swift */; };
+		A15F0035A15F0035A15F0035 /* MediaTestFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = A15F0005A15F0005A15F0005 /* MediaTestFixtures.swift */; };
+		A16F0016A16F0016A16F0016 /* IosXSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16F0006A16F0006A16F0006 /* IosXSession.swift */; };
+		A16F0017A16F0017A16F0017 /* IosXMediaScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16F0007A16F0007A16F0007 /* IosXMediaScript.swift */; };
+		A16F0018A16F0018A16F0018 /* IosXBrowserController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16F0008A16F0008A16F0008 /* IosXBrowserController.swift */; };
+		A16F0019A16F0019A16F0019 /* IosXLoginBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16F0009A16F0009A16F0009 /* IosXLoginBridge.swift */; };
+		A16F0030A16F0030A16F0030 /* IosXSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16F0000A16F0000A16F0000 /* IosXSessionTests.swift */; };
+		78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */ = {isa = PBXBuildFile; productRef = 78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		A14F0014A14F0014A14F0014 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 97C146E61CF9000F007C117D /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = A14F0020A14F0020A14F0020;
-			remoteInfo = ShareExtension;
-		};
 		331C8085294A63A400263BE5 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 97C146E61CF9000F007C117D /* Project object */;
@@ -47,9 +41,26 @@
 			remoteGlobalIDString = 97C146ED1CF9000F007C117D;
 			remoteInfo = Runner;
 		};
+		A14F0014A14F0014A14F0014 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 97C146E61CF9000F007C117D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A14F0020A14F0020A14F0020;
+			remoteInfo = ShareExtension;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
+		9705A1C41CF9048500538489 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A14F0015A14F0015A14F0015 /* Embed App Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -61,32 +72,9 @@
 			name = "Embed App Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		9705A1C41CF9048500538489 /* Embed Frameworks */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 10;
-			files = (
-			);
-			name = "Embed Frameworks";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		A16F0000A16F0000A16F0000 /* IosXSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IosXSessionTests.swift; sourceTree = "<group>"; };
-		A16F0009A16F0009A16F0009 /* IosXLoginBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IosXLoginBridge.swift; sourceTree = "<group>"; };
-		A16F0008A16F0008A16F0008 /* IosXBrowserController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IosXBrowserController.swift; sourceTree = "<group>"; };
-		A16F0007A16F0007A16F0007 /* IosXMediaScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IosXMediaScript.swift; sourceTree = "<group>"; };
-		A16F0006A16F0006A16F0006 /* IosXSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IosXSession.swift; sourceTree = "<group>"; };
-		A15F0005A15F0005A15F0005 /* MediaTestFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaTestFixtures.swift; sourceTree = "<group>"; };
-		A15F0004A15F0004A15F0004 /* SharedLinkStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedLinkStore.swift; sourceTree = "<group>"; };
-		A15F0003A15F0003A15F0003 /* IosMediaMerger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IosMediaMerger.swift; sourceTree = "<group>"; };
-		A15F0002A15F0002A15F0002 /* IosFileExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IosFileExporter.swift; sourceTree = "<group>"; };
-		A15F0001A15F0001A15F0001 /* IosMediaBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IosMediaBridge.swift; sourceTree = "<group>"; };
-		A14F0011A14F0011A14F0011 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
-		A14F0013A14F0013A14F0013 /* ShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		A14F0016A14F0016A14F0016 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		12BA2E044AEE00338239B546 /* Pods-RunnerTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.release.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.release.xcconfig"; sourceTree = "<group>"; };
 		1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GeneratedPluginRegistrant.h; sourceTree = "<group>"; };
 		1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GeneratedPluginRegistrant.m; sourceTree = "<group>"; };
@@ -108,24 +96,39 @@
 		97C147001CF9000F007C117D /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		97C147021CF9000F007C117D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		9EAA728D89205BB3DCB9C831 /* Pods_RunnerTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_RunnerTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		A14F0011A14F0011A14F0011 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
+		A14F0013A14F0013A14F0013 /* ShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		A14F0016A14F0016A14F0016 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A15F0001A15F0001A15F0001 /* IosMediaBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IosMediaBridge.swift; sourceTree = "<group>"; };
+		A15F0002A15F0002A15F0002 /* IosFileExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IosFileExporter.swift; sourceTree = "<group>"; };
+		A15F0003A15F0003A15F0003 /* IosMediaMerger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IosMediaMerger.swift; sourceTree = "<group>"; };
+		A15F0004A15F0004A15F0004 /* SharedLinkStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedLinkStore.swift; sourceTree = "<group>"; };
+		A15F0005A15F0005A15F0005 /* MediaTestFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaTestFixtures.swift; sourceTree = "<group>"; };
+		A16F0000A16F0000A16F0000 /* IosXSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IosXSessionTests.swift; sourceTree = "<group>"; };
+		A16F0006A16F0006A16F0006 /* IosXSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IosXSession.swift; sourceTree = "<group>"; };
+		A16F0007A16F0007A16F0007 /* IosXMediaScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IosXMediaScript.swift; sourceTree = "<group>"; };
+		A16F0008A16F0008A16F0008 /* IosXBrowserController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IosXBrowserController.swift; sourceTree = "<group>"; };
+		A16F0009A16F0009A16F0009 /* IosXLoginBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IosXLoginBridge.swift; sourceTree = "<group>"; };
 		BDAE12C7170BAE879F4306CC /* Pods-Runner.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.release.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"; sourceTree = "<group>"; };
 		F2B81383071FE76D5E46E4E7 /* Pods-Runner.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.debug.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"; sourceTree = "<group>"; };
 		F4F66C564C82419D91547764 /* Pods_Runner.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Runner.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		78E0A7A72DC9AD7400C4905E /* FlutterGeneratedPluginSwiftPackage */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = FlutterGeneratedPluginSwiftPackage; path = Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		A14F0017A14F0017A14F0017 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		97C146EB1CF9000F007C117D /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */,
 				4DDA35C99C35161A0E1E528D /* Pods_Runner.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A14F0017A14F0017A14F0017 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -140,15 +143,6 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		A14F0018A14F0018A14F0018 /* ShareExtension */ = {
-			isa = PBXGroup;
-			children = (
-				A14F0011A14F0011A14F0011 /* ShareViewController.swift */,
-				A14F0016A14F0016A14F0016 /* Info.plist */,
-			);
-			path = ShareExtension;
-			sourceTree = "<group>";
-		};
 		331C8082294A63A400263BE5 /* RunnerTests */ = {
 			isa = PBXGroup;
 			children = (
@@ -178,13 +172,13 @@
 				12BA2E044AEE00338239B546 /* Pods-RunnerTests.release.xcconfig */,
 				840ED0A36133FEA7C2ED6013 /* Pods-RunnerTests.profile.xcconfig */,
 			);
-			name = Pods;
 			path = Pods;
 			sourceTree = "<group>";
 		};
 		9740EEB11CF90186004384FC /* Flutter */ = {
 			isa = PBXGroup;
 			children = (
+				78E0A7A72DC9AD7400C4905E /* FlutterGeneratedPluginSwiftPackage */,
 				3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */,
 				9740EEB21CF90195004384FC /* Debug.xcconfig */,
 				7AFA3C8E1D35360C0083082E /* Release.xcconfig */,
@@ -240,26 +234,18 @@
 			path = Runner;
 			sourceTree = "<group>";
 		};
+		A14F0018A14F0018A14F0018 /* ShareExtension */ = {
+			isa = PBXGroup;
+			children = (
+				A14F0011A14F0011A14F0011 /* ShareViewController.swift */,
+				A14F0016A14F0016A14F0016 /* Info.plist */,
+			);
+			path = ShareExtension;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		A14F0020A14F0020A14F0020 /* ShareExtension */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = A14F0030A14F0030A14F0030 /* Build configuration list for PBXNativeTarget "ShareExtension" */;
-			buildPhases = (
-				A14F0021A14F0021A14F0021 /* Sources */,
-				A14F0017A14F0017A14F0017 /* Frameworks */,
-				A14F0022A14F0022A14F0022 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = ShareExtension;
-			productName = ShareExtension;
-			productReference = A14F0013A14F0013A14F0013 /* ShareExtension.appex */;
-			productType = "com.apple.product-type.app-extension";
-		};
 		331C8080294A63A400263BE5 /* RunnerTests */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 331C8087294A63A400263BE5 /* Build configuration list for PBXNativeTarget "RunnerTests" */;
@@ -280,6 +266,9 @@
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
 		97C146ED1CF9000F007C117D /* Runner */ = {
+			packageProductDependencies = (
+				78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */,
+			);
 			isa = PBXNativeTarget;
 			buildConfigurationList = 97C147051CF9000F007C117D /* Build configuration list for PBXNativeTarget "Runner" */;
 			buildPhases = (
@@ -291,7 +280,6 @@
 				A14F0015A14F0015A14F0015 /* Embed App Extensions */,
 				9705A1C41CF9048500538489 /* Embed Frameworks */,
 				3B06AD1E1E4923F5004D2608 /* Thin Binary */,
-				E3E831A094C79AB053C51A93 /* [CP] Embed Pods Frameworks */,
 			);
 			buildRules = (
 			);
@@ -303,19 +291,36 @@
 			productReference = 97C146EE1CF9000F007C117D /* Runner.app */;
 			productType = "com.apple.product-type.application";
 		};
+		A14F0020A14F0020A14F0020 /* ShareExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A14F0030A14F0030A14F0030 /* Build configuration list for PBXNativeTarget "ShareExtension" */;
+			buildPhases = (
+				A14F0021A14F0021A14F0021 /* Sources */,
+				A14F0017A14F0017A14F0017 /* Frameworks */,
+				A14F0022A14F0022A14F0022 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ShareExtension;
+			productName = ShareExtension;
+			productReference = A14F0013A14F0013A14F0013 /* ShareExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
 		97C146E61CF9000F007C117D /* Project object */ = {
+			packageReferences = (
+				781AD8BC2B33823900A9FFBB /* XCLocalSwiftPackageReference "Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage" */,
+			);
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1510;
 				ORGANIZATIONNAME = "";
 				TargetAttributes = {
-					A14F0020A14F0020A14F0020 = {
-						CreatedOnToolsVersion = 26.3;
-					};
 					331C8080294A63A400263BE5 = {
 						CreatedOnToolsVersion = 14.0;
 						TestTargetID = 97C146ED1CF9000F007C117D;
@@ -323,6 +328,9 @@
 					97C146ED1CF9000F007C117D = {
 						CreatedOnToolsVersion = 7.3.1;
 						LastSwiftMigration = 1100;
+					};
+					A14F0020A14F0020A14F0020 = {
+						CreatedOnToolsVersion = 26.3;
 					};
 				};
 			};
@@ -347,13 +355,6 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		A14F0022A14F0022A14F0022 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		331C807F294A63A400263BE5 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -369,6 +370,13 @@
 				3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */,
 				97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */,
 				97C146FC1CF9000F007C117D /* Main.storyboard in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A14F0022A14F0022A14F0022 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -450,35 +458,9 @@
 			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
 			showEnvVarsInLog = 0;
 		};
-		E3E831A094C79AB053C51A93 /* [CP] Embed Pods Frameworks */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-				"${PODS_ROOT}/Target Support Files/Pods-Runner/Pods-Runner-frameworks-${CONFIGURATION}-input-files.xcfilelist",
-			);
-			name = "[CP] Embed Pods Frameworks";
-			outputFileListPaths = (
-				"${PODS_ROOT}/Target Support Files/Pods-Runner/Pods-Runner-frameworks-${CONFIGURATION}-output-files.xcfilelist",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Runner/Pods-Runner-frameworks.sh\"\n";
-			showEnvVarsInLog = 0;
-		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		A14F0021A14F0021A14F0021 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				A14F0010A14F0010A14F0010 /* ShareViewController.swift in Sources */,
-				A15F0024A15F0024A15F0024 /* SharedLinkStore.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		331C807D294A63A400263BE5 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -507,18 +489,27 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A14F0021A14F0021A14F0021 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A14F0010A14F0010A14F0010 /* ShareViewController.swift in Sources */,
+				A15F0024A15F0024A15F0024 /* SharedLinkStore.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		A14F0023A14F0023A14F0023 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = A14F0020A14F0020A14F0020 /* ShareExtension */;
-			targetProxy = A14F0014A14F0014A14F0014 /* PBXContainerItemProxy */;
-		};
 		331C8086294A63A400263BE5 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 97C146ED1CF9000F007C117D /* Runner */;
 			targetProxy = 331C8085294A63A400263BE5 /* PBXContainerItemProxy */;
+		};
+		A14F0023A14F0023A14F0023 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A14F0020A14F0020A14F0020 /* ShareExtension */;
+			targetProxy = A14F0014A14F0014A14F0014 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -542,89 +533,6 @@
 /* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
-		A14F0031A14F0031A14F0031 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			baseConfigurationReference = 9740EEB31CF90195004384FC /* Generated.xcconfig */;
-			buildSettings = {
-				APPLICATION_EXTENSION_API_ONLY = YES;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
-				DEVELOPMENT_TEAM = 5RU564CZVG;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = ShareExtension/Info.plist;
-				APP_GROUP_IDENTIFIER = group.com.example.videodownloader.shared;
-				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.videodownloader.ShareExtension;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
-				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Debug;
-		};
-		A14F0032A14F0032A14F0032 /* Release */ = {
-			isa = XCBuildConfiguration;
-			baseConfigurationReference = 9740EEB31CF90195004384FC /* Generated.xcconfig */;
-			buildSettings = {
-				APPLICATION_EXTENSION_API_ONLY = YES;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
-				DEVELOPMENT_TEAM = 5RU564CZVG;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = ShareExtension/Info.plist;
-				APP_GROUP_IDENTIFIER = group.com.example.videodownloader.shared;
-				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.videodownloader.ShareExtension;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
-				SWIFT_COMPILATION_MODE = wholemodule;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Release;
-		};
-		A14F0033A14F0033A14F0033 /* Profile */ = {
-			isa = XCBuildConfiguration;
-			baseConfigurationReference = 9740EEB31CF90195004384FC /* Generated.xcconfig */;
-			buildSettings = {
-				APPLICATION_EXTENSION_API_ONLY = YES;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
-				DEVELOPMENT_TEAM = 5RU564CZVG;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = ShareExtension/Info.plist;
-				APP_GROUP_IDENTIFIER = group.com.example.videodownloader.shared;
-				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.videodownloader.ShareExtension;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Profile;
-		};
 		249021D3217E4FDB00AE95B9 /* Profile */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -681,19 +589,19 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 7AFA3C8E1D35360C0083082E /* Release.xcconfig */;
 			buildSettings = {
+				APP_GROUP_IDENTIFIER = group.lzp.example.videodownloader.shared;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
-				DEVELOPMENT_TEAM = 5RU564CZVG;
+				DEVELOPMENT_TEAM = E7W6597ZYH;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
-				APP_GROUP_IDENTIFIER = group.com.example.videodownloader.shared;
-				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.videodownloader;
+				PRODUCT_BUNDLE_IDENTIFIER = lzp.example.videodownloader;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
@@ -866,19 +774,19 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 9740EEB21CF90195004384FC /* Debug.xcconfig */;
 			buildSettings = {
+				APP_GROUP_IDENTIFIER = group.lzp.example.videodownloader.shared;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
-				DEVELOPMENT_TEAM = 5RU564CZVG;
+				DEVELOPMENT_TEAM = E7W6597ZYH;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
-				APP_GROUP_IDENTIFIER = group.com.example.videodownloader.shared;
-				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.videodownloader;
+				PRODUCT_BUNDLE_IDENTIFIER = lzp.example.videodownloader;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -891,19 +799,19 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 7AFA3C8E1D35360C0083082E /* Release.xcconfig */;
 			buildSettings = {
+				APP_GROUP_IDENTIFIER = group.lzp.example.videodownloader.shared;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
-				DEVELOPMENT_TEAM = 5RU564CZVG;
+				DEVELOPMENT_TEAM = E7W6597ZYH;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
-				APP_GROUP_IDENTIFIER = group.com.example.videodownloader.shared;
-				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.videodownloader;
+				PRODUCT_BUNDLE_IDENTIFIER = lzp.example.videodownloader;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
@@ -911,19 +819,92 @@
 			};
 			name = Release;
 		};
+		A14F0031A14F0031A14F0031 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 9740EEB31CF90195004384FC /* Generated.xcconfig */;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				APP_GROUP_IDENTIFIER = group.lzp.example.videodownloader.shared;
+				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+				DEVELOPMENT_TEAM = E7W6597ZYH;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ShareExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = lzp.example.videodownloader.ShareExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A14F0032A14F0032A14F0032 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 9740EEB31CF90195004384FC /* Generated.xcconfig */;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				APP_GROUP_IDENTIFIER = group.lzp.example.videodownloader.shared;
+				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+				DEVELOPMENT_TEAM = E7W6597ZYH;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ShareExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = lzp.example.videodownloader.ShareExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		A14F0033A14F0033A14F0033 /* Profile */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 9740EEB31CF90195004384FC /* Generated.xcconfig */;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				APP_GROUP_IDENTIFIER = group.lzp.example.videodownloader.shared;
+				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+				DEVELOPMENT_TEAM = E7W6597ZYH;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ShareExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = lzp.example.videodownloader.ShareExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Profile;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		A14F0030A14F0030A14F0030 /* Build configuration list for PBXNativeTarget "ShareExtension" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				A14F0031A14F0031A14F0031 /* Debug */,
-				A14F0032A14F0032A14F0032 /* Release */,
-				A14F0033A14F0033A14F0033 /* Profile */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 		331C8087294A63A400263BE5 /* Build configuration list for PBXNativeTarget "RunnerTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -954,7 +935,29 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		A14F0030A14F0030A14F0030 /* Build configuration list for PBXNativeTarget "ShareExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A14F0031A14F0031A14F0031 /* Debug */,
+				A14F0032A14F0032A14F0032 /* Release */,
+				A14F0033A14F0033A14F0033 /* Profile */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
+/* Begin XCLocalSwiftPackageReference section */
+		781AD8BC2B33823900A9FFBB /* XCLocalSwiftPackageReference "Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage;
+		};
+/* End XCLocalSwiftPackageReference section */
+/* Begin XCSwiftPackageProductDependency section */
+		78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = FlutterGeneratedPluginSwiftPackage;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 97C146E61CF9000F007C117D /* Project object */;
 }
