@@ -7,6 +7,7 @@ import UIKit
   private static var incomingLinkChannel: FlutterMethodChannel?
   private static var pendingIncomingLinkPayload: [String: Any]?
   private static var incomingLinkDartReady = false
+  private static var shareDeduplicator = IncomingShareDeduplicator()
   private let mediaBridge = IosMediaBridge()
   private let xLoginBridge = IosXLoginBridge()
 
@@ -41,9 +42,12 @@ import UIKit
       case "getInitialLink":
         Self.incomingLinkDartReady = true
         if Self.pendingIncomingLinkPayload == nil, let shared = SharedLinkStore.take() {
-          Self.pendingIncomingLinkPayload = Self.extractIncomingPayload(
+          let payload = Self.extractIncomingPayload(
             from: shared, source: "shared_storage_initial"
           )
+          if let payload, Self.shouldDeliver(payload) {
+            Self.pendingIncomingLinkPayload = payload
+          }
         }
         let pendingPayload = Self.pendingIncomingLinkPayload
         Self.pendingIncomingLinkPayload = nil
@@ -70,6 +74,7 @@ import UIKit
     let incomingUrl = payload["url"] as? String ?? "nil"
     let origin = payload["origin"] as? String ?? "unknown"
     if origin == "share_extension" { SharedLinkStore.clear() }
+    guard shouldDeliver(payload) else { return true }
     print(
       "ios/Runner/AppDelegate.swift#handleIncomingUrl: source=\(source) origin=\(origin) incomingUrl=\(incomingUrl)"
     )
@@ -90,6 +95,17 @@ import UIKit
     if let url = SharedLinkStore.take() {
       _ = handleIncomingUrl(url, source: "shared_storage_resume")
     }
+  }
+
+  private static func shouldDeliver(_ payload: [String: Any]) -> Bool {
+    let accepted = shareDeduplicator.shouldDeliver(
+      origin: payload["origin"] as? String ?? "",
+      requestID: payload["requestID"] as? String
+    )
+    if !accepted {
+      print("ios/Runner/AppDelegate.swift#shouldDeliver: ignored duplicate share event")
+    }
+    return accepted
   }
 
   private static func extractIncomingPayload(
@@ -138,6 +154,7 @@ import UIKit
     let matchType = queryItems.first { item in
       item.name == "match"
     }?.value?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let requestID = queryItems.first { $0.name == "request_id" }?.value ?? ""
 
     var debugLogLines = [
       "[Incoming Link Native Log]",
@@ -145,6 +162,7 @@ import UIKit
       "origin=\(origin)",
       "rawUrl=\(url.absoluteString)",
       "resolvedUrl=\(targetUrl.absoluteString)",
+      "requestID=\(requestID)",
     ]
     if let matchType, !matchType.isEmpty {
       debugLogLines.append("match=\(matchType)")
@@ -154,6 +172,7 @@ import UIKit
     return [
       "url": targetUrl.absoluteString,
       "origin": origin,
+      "requestID": requestID,
       "debugLog": debugLog,
     ]
   }

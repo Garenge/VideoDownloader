@@ -107,32 +107,44 @@ final class ShareViewController: UIViewController {
         return
       }
 
-      guard let appUrl = self._buildHostAppUrl(from: sharedUrl) else {
-        self._finishWithError("分享链接格式无效")
-        return
-      }
-
       print(
         "ios/ShareExtension/ShareViewController.swift#_startShareFlow: sharedUrl=\(sharedUrl.absoluteString)"
       )
-      guard SharedLinkStore.save(sharedUrl) else {
-        self._finishWithError("分享存储未就绪，请检查主 App 与分享扩展的 App Group 签名配置")
-        return
-      }
-      self.extensionContext?.open(appUrl) { success in
-        DispatchQueue.main.async {
-          if success {
-            print(
-              "ios/ShareExtension/ShareViewController.swift#_startShareFlow: opened host app url=\(appUrl.absoluteString)"
-            )
-            self.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
-            return
-          }
+      guard let appUrl = self._saveSharedUrl(sharedUrl) else { return }
+      self._openHostApp(appUrl)
+    }
+  }
 
-          self._statusLabel.text = "链接已保存"
-          self._detailLabel.text = "关闭此窗口后打开 VideoDownloader，App 会自动接收并解析链接"
-          self._dismissButton.isHidden = false
+  private func _saveSharedUrl(_ url: URL) -> URL? {
+    do {
+      return try SharedLinkStore.save(url)
+    } catch {
+      let storageError = error as? SharedLinkStore.StorageError
+      let title = storageError == nil ? "分享链接写入失败" : "分享存储未就绪"
+      print(
+        "ios/ShareExtension/ShareViewController.swift#_saveSharedUrl: failed error=\(error)"
+      )
+      _finishWithError(title, detail: error.localizedDescription)
+      return nil
+    }
+  }
+
+  private func _openHostApp(_ appUrl: URL) {
+    ShareHostAppOpener.open(appUrl, from: self) { success in
+      DispatchQueue.main.async {
+        if success {
+          print(
+            "ios/ShareExtension/ShareViewController.swift#_openHostApp: opened host app url=\(appUrl.absoluteString)"
+          )
+          self.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
+          return
         }
+        print(
+          "ios/ShareExtension/ShareViewController.swift#_openHostApp: open failed, shared link remains saved"
+        )
+        self._statusLabel.text = "链接已保存"
+        self._detailLabel.text = "关闭此窗口后打开 VideoDownloader，App 会自动接收并解析链接"
+        self._dismissButton.isHidden = false
       }
     }
   }
@@ -347,22 +359,13 @@ final class ShareViewController: UIViewController {
     return segments[2].allSatisfy(\.isNumber)
   }
 
-  private func _buildHostAppUrl(from sharedUrl: URL) -> URL? {
-    var components = URLComponents()
-    components.scheme = "videodownloader"
-    components.host = "parse"
-    components.queryItems = [
-      URLQueryItem(name: "url", value: sharedUrl.absoluteString),
-      URLQueryItem(name: "source", value: "share_extension"),
-      URLQueryItem(name: "match", value: "x_status"),
-    ]
-    return components.url
-  }
-
-  private func _finishWithError(_ message: String) {
+  private func _finishWithError(
+    _ message: String,
+    detail: String = "请返回分享页重试，或先确认分享内容里是否真的带有网页链接。"
+  ) {
     print("ios/ShareExtension/ShareViewController.swift#_finishWithError: \(message)")
     _statusLabel.text = message
-    _detailLabel.text = "请返回分享页重试，或先确认分享内容里是否真的带有网页链接。"
+    _detailLabel.text = detail
     _dismissButton.isHidden = false
   }
 }

@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A18F0010A18F0010A18F0010 /* ShareHostAppOpener.swift in Sources */ = {isa = PBXBuildFile; fileRef = A18F0000A18F0000A18F0000 /* ShareHostAppOpener.swift */; };
 		A17F0010A17F0010A17F0010 /* IosFilePreviewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17F0000A17F0000A17F0000 /* IosFilePreviewer.swift */; };
 		1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */; };
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
@@ -99,6 +100,7 @@
 		97C147021CF9000F007C117D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		9EAA728D89205BB3DCB9C831 /* Pods_RunnerTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_RunnerTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		A14F0011A14F0011A14F0011 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
+		A18F0000A18F0000A18F0000 /* ShareHostAppOpener.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareHostAppOpener.swift; sourceTree = "<group>"; };
 		A14F0013A14F0013A14F0013 /* ShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		A14F0016A14F0016A14F0016 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A15F0001A15F0001A15F0001 /* IosMediaBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IosMediaBridge.swift; sourceTree = "<group>"; };
@@ -241,6 +243,7 @@
 			isa = PBXGroup;
 			children = (
 				A14F0011A14F0011A14F0011 /* ShareViewController.swift */,
+				A18F0000A18F0000A18F0000 /* ShareHostAppOpener.swift */,
 				A14F0016A14F0016A14F0016 /* Info.plist */,
 			);
 			path = ShareExtension;
@@ -498,6 +501,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A14F0010A14F0010A14F0010 /* ShareViewController.swift in Sources */,
+				A18F0010A18F0010A18F0010 /* ShareHostAppOpener.swift in Sources */,
 				A15F0024A15F0024A15F0024 /* SharedLinkStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
