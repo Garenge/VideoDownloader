@@ -172,6 +172,8 @@ class DownloadQueuePanel extends StatelessWidget {
     required this.onRetry,
     required this.onOpenFolder,
     required this.onCopyLogs,
+    this.onRemove,
+    this.onClearFinished,
   });
 
   final List<DownloadTask> tasks;
@@ -179,6 +181,8 @@ class DownloadQueuePanel extends StatelessWidget {
   final ValueChanged<DownloadTask> onRetry;
   final ValueChanged<DownloadTask> onOpenFolder;
   final ValueChanged<DownloadTask> onCopyLogs;
+  final ValueChanged<DownloadTask>? onRemove;
+  final VoidCallback? onClearFinished;
 
   @override
   Widget build(BuildContext context) {
@@ -200,6 +204,11 @@ class DownloadQueuePanel extends StatelessWidget {
                   ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
                 ),
                 const Spacer(),
+                if (onClearFinished != null)
+                  TextButton(
+                    onPressed: onClearFinished,
+                    child: const Text('清理已结束'),
+                  ),
                 _CountPill(label: '任务', count: tasks.length),
               ],
             ),
@@ -211,6 +220,7 @@ class DownloadQueuePanel extends StatelessWidget {
                 onRetry: () => onRetry(task),
                 onOpenFolder: () => onOpenFolder(task),
                 onCopyLogs: () => onCopyLogs(task),
+                onRemove: onRemove == null ? null : () => onRemove!(task),
               ),
               if (task != tasks.last) const Divider(height: 14),
             ],
@@ -229,6 +239,7 @@ class DownloadHistoryPanel extends StatelessWidget {
     required this.onConvertToMp4,
     required this.onClear,
     this.canConvertToMp4 = true,
+    this.onRemove,
   });
 
   final List<DownloadHistoryRecord> records;
@@ -236,6 +247,7 @@ class DownloadHistoryPanel extends StatelessWidget {
   final ValueChanged<DownloadHistoryRecord> onConvertToMp4;
   final VoidCallback onClear;
   final bool canConvertToMp4;
+  final ValueChanged<DownloadHistoryRecord>? onRemove;
 
   @override
   Widget build(BuildContext context) {
@@ -270,6 +282,7 @@ class DownloadHistoryPanel extends StatelessWidget {
               _DownloadHistoryTile(
                 record: record,
                 onOpenFolder: () => onOpenFolder(record),
+                onRemove: onRemove == null ? null : () => onRemove!(record),
                 onConvertToMp4: canConvertToMp4 && record.isM3u8
                     ? () => onConvertToMp4(record)
                     : null,
@@ -288,11 +301,13 @@ class _DownloadHistoryTile extends StatelessWidget {
     required this.record,
     required this.onOpenFolder,
     this.onConvertToMp4,
+    this.onRemove,
   });
 
   final DownloadHistoryRecord record;
   final VoidCallback onOpenFolder;
   final VoidCallback? onConvertToMp4;
+  final VoidCallback? onRemove;
 
   @override
   Widget build(BuildContext context) {
@@ -315,6 +330,12 @@ class _DownloadHistoryTile extends StatelessWidget {
           tooltip: _exportTooltip,
           icon: Icon(_exportIcon),
         ),
+        if (onRemove != null)
+          IconButton(
+            onPressed: onRemove,
+            tooltip: '删除记录（保留文件）',
+            icon: const Icon(Icons.delete_outline),
+          ),
       ],
     );
   }
@@ -365,6 +386,7 @@ class _DownloadTaskTile extends StatelessWidget {
     required this.onRetry,
     required this.onOpenFolder,
     required this.onCopyLogs,
+    this.onRemove,
   });
 
   final DownloadTask task;
@@ -372,6 +394,7 @@ class _DownloadTaskTile extends StatelessWidget {
   final VoidCallback onRetry;
   final VoidCallback onOpenFolder;
   final VoidCallback onCopyLogs;
+  final VoidCallback? onRemove;
 
   @override
   Widget build(BuildContext context) {
@@ -397,13 +420,19 @@ class _DownloadTaskTile extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(child: _buildTaskContent(context)),
           const SizedBox(width: 12),
-          ConstrainedBox(
-            constraints: const BoxConstraints(minWidth: 48),
+          SizedBox(
+            width: 88,
             child: Wrap(
               spacing: 4,
               runSpacing: 4,
               alignment: WrapAlignment.end,
               children: [
+                if (onRemove != null)
+                  _TaskActionButton(
+                    onPressed: onRemove!,
+                    tooltip: canCancel ? '取消并移除' : '删除记录（保留文件）',
+                    icon: Icons.delete_outline,
+                  ),
                 if (canOpenFolder)
                   _TaskActionButton(
                     onPressed: onOpenFolder,

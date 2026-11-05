@@ -5,6 +5,7 @@ import UIKit
 final class IosMediaBridge {
   private let merger = IosMediaMerger()
   private let exporter = IosFileExporter()
+  private let previewer = IosFilePreviewer()
 
   func register(messenger: FlutterBinaryMessenger) {
     let channel = FlutterMethodChannel(
@@ -24,6 +25,8 @@ final class IosMediaBridge {
         result(token)
       case "exportFile":
         exporter.export(path: call.arguments as? String, result: result)
+      case "previewFile":
+        previewer.open(path: call.arguments as? String, result: result)
       case "merge":
         merger.merge(arguments: call.arguments as? [String: String], result: result)
       case "cancelMerge":

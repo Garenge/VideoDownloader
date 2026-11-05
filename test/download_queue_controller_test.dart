@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -9,6 +10,73 @@ import 'package:videodownloader/source_parser/download_queue_controller.dart';
 import 'package:videodownloader/source_parser/source_resource.dart';
 
 void main() {
+  test(
+    'removing active and pending tasks cancels them and advances remaining queue',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'queue_cancel_remove_',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      final blocked = Completer<http.Response>();
+      final controller = DownloadQueueController(
+        useIoHttpClientForDirectDownloads: false,
+        client: MockClient(
+          (request) async => request.url == Uri.parse(_resource.url)
+              ? blocked.future
+              : http.Response('video', 200, request: request),
+        ),
+        downloadDirectoryResolver: () async => directory,
+        downloadHistoryStore: await _createHistoryStore(directory),
+      );
+      addTearDown(controller.dispose);
+      final active = controller.enqueue(_resource);
+      await _waitForStatus(active, DownloadStatus.downloading);
+      final pending = controller.enqueue(_secondResource);
+      controller.clearFinishedTasks();
+      expect(controller.tasks, hasLength(2));
+      controller.removeTask(pending);
+      controller.removeTask(active);
+      blocked.complete(http.Response('canceled', 200));
+      await _waitForStatus(active, DownloadStatus.canceled);
+      expect(controller.tasks, isEmpty);
+      expect(pending.status, DownloadStatus.canceled);
+      final next = controller.enqueue(_secondResource);
+      await _waitForStatus(next, DownloadStatus.completed);
+      expect(await File(next.filePath!).readAsString(), 'video');
+      controller.clearFinishedTasks();
+      expect(controller.tasks, isEmpty);
+    },
+  );
+
+  test(
+    'removing completed queue entries keeps files and history until file deletion',
+    () async {
+      final directory = await Directory.systemTemp.createTemp('queue_removal_');
+      addTearDown(() => directory.delete(recursive: true));
+      final controller = DownloadQueueController(
+        useIoHttpClientForDirectDownloads: false,
+        client: MockClient(
+          (request) async => http.Response('video', 200, request: request),
+        ),
+        downloadDirectoryResolver: () async => directory,
+        downloadHistoryStore: await _createHistoryStore(directory),
+      );
+      addTearDown(controller.dispose);
+      final task = controller.enqueue(_resource);
+      await _waitForStatus(task, DownloadStatus.completed);
+      for (var i = 0; controller.history.isEmpty && i < 100; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      controller.removeTask(task);
+      expect(controller.tasks, isEmpty);
+      expect(await File(task.filePath!).exists(), isTrue);
+      expect(controller.history, hasLength(1));
+      expect(controller.activeFilePaths, isEmpty);
+      await controller.removeFileRecords(task.filePath!);
+      expect(controller.history, isEmpty);
+    },
+  );
+
   test('downloads resource into queue directory', () async {
     final tempDirectory = await Directory.systemTemp.createTemp(
       'videodownloader_test_',

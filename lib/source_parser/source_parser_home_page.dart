@@ -16,6 +16,7 @@ import 'download_settings_sheet.dart';
 import 'download_settings_store.dart';
 import 'download_queue_controller.dart';
 import 'download_queue_panel.dart';
+import 'downloaded_files_page.dart';
 import 'media_conversion_controller.dart';
 import 'media_conversion_panel.dart';
 import 'parse_history_store.dart';
@@ -907,7 +908,7 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
       final message = parseFailureMessage(error);
       debugPrint(
         'lib/source_parser/source_parser_home_page.dart#_handleParse: '
-        '解析失败 type=${error.runtimeType}\n$stack',
+        '解析失败 type=${error.runtimeType} message=$message\n$stack',
       );
       _appendParseResultToIncomingShareLogs(
         '解析失败 url=$parseUrl message=$message',
@@ -1648,6 +1649,26 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
     }
   }
 
+  Future<void> _handleRemoveHistory(DownloadHistoryRecord record) async {
+    try {
+      await _downloadQueueController!.removeHistory(record.filePath);
+    } on Object catch (error) {
+      debugPrint(
+        'source_parser_home_page.dart#_handleRemoveHistory: 删除记录失败 error=$error',
+      );
+      if (mounted) _showPageToast('删除记录失败：$error');
+    }
+  }
+
+  void _openDownloadedFiles() {
+    _closeDownloadPanel();
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => DownloadedFilesPage(queue: _downloadQueueController!),
+      ),
+    );
+  }
+
   void _handleConvertHistoryToMp4(DownloadHistoryRecord record) {
     if (_downloadToolStatus.externalCommandBlocked) {
       _showPageToast('当前环境禁止执行 ffmpeg，暂时无法转 MP4');
@@ -1826,6 +1847,8 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
                       onRetry: controller.retry,
                       onOpenFolder: _handleOpenDownloadedFolder,
                       onCopyLogs: _handleCopyTaskLogs,
+                      onRemove: controller.removeTask,
+                      onClearFinished: controller.clearFinishedTasks,
                     ),
                     conversionPanel: Platform.isIOS
                         ? null
@@ -1842,6 +1865,7 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
                       onConvertToMp4: _handleConvertHistoryToMp4,
                       onClear: controller.clearHistory,
                       canConvertToMp4: !Platform.isIOS,
+                      onRemove: (record) => _handleRemoveHistory(record),
                     ),
                   );
                 },
@@ -1854,6 +1878,31 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
   }
 
   Widget _buildHeader(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final identity = _buildHeaderIdentity(context);
+        final actions = _buildHeaderActions(context);
+        if (constraints.maxWidth >= 600) {
+          return Row(
+            children: [
+              Expanded(child: identity),
+              actions,
+            ],
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            identity,
+            const SizedBox(height: 8),
+            Align(alignment: Alignment.centerRight, child: actions),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildHeaderIdentity(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
 
     return Row(
@@ -1886,6 +1935,20 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
               ),
             ],
           ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHeaderActions(BuildContext context) {
+    return Wrap(
+      alignment: WrapAlignment.end,
+      children: [
+        TextButton.icon(
+          key: const ValueKey('downloaded-files-button'),
+          onPressed: _openDownloadedFiles,
+          icon: const Icon(Icons.video_library_outlined),
+          label: const Text('文件'),
         ),
         if (widget.parserService == null) ...[
           if (_savedProxySpec != null && _savedProxySpec!.trim().isNotEmpty)

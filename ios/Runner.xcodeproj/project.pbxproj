@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A17F0010A17F0010A17F0010 /* IosFilePreviewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17F0000A17F0000A17F0000 /* IosFilePreviewer.swift */; };
 		1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */; };
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
 		3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */; };
@@ -75,6 +76,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A17F0000A17F0000A17F0000 /* IosFilePreviewer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IosFilePreviewer.swift; sourceTree = "<group>"; };
 		12BA2E044AEE00338239B546 /* Pods-RunnerTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.release.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.release.xcconfig"; sourceTree = "<group>"; };
 		1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GeneratedPluginRegistrant.h; sourceTree = "<group>"; };
 		1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GeneratedPluginRegistrant.m; sourceTree = "<group>"; };
@@ -223,6 +225,7 @@
 				A15F0004A15F0004A15F0004 /* SharedLinkStore.swift */,
 				A15F0003A15F0003A15F0003 /* IosMediaMerger.swift */,
 				A15F0002A15F0002A15F0002 /* IosFileExporter.swift */,
+				A17F0000A17F0000A17F0000 /* IosFilePreviewer.swift */,
 				A15F0001A15F0001A15F0001 /* IosMediaBridge.swift */,
 				A16F0009A16F0009A16F0009 /* IosXLoginBridge.swift */,
 				A16F0008A16F0008A16F0008 /* IosXBrowserController.swift */,
@@ -479,6 +482,7 @@
 				A15F0014A15F0014A15F0014 /* SharedLinkStore.swift in Sources */,
 				A15F0013A15F0013A15F0013 /* IosMediaMerger.swift in Sources */,
 				A15F0012A15F0012A15F0012 /* IosFileExporter.swift in Sources */,
+				A17F0010A17F0010A17F0010 /* IosFilePreviewer.swift in Sources */,
 				A15F0011A15F0011A15F0011 /* IosMediaBridge.swift in Sources */,
 				A16F0019A16F0019A16F0019 /* IosXLoginBridge.swift in Sources */,
 				A16F0018A16F0018A16F0018 /* IosXBrowserController.swift in Sources */,

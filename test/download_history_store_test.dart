@@ -5,6 +5,40 @@ import 'package:videodownloader/source_parser/download_history_store.dart';
 
 void main() {
   test(
+    'removing one record preserves files and other records after reload',
+    () async {
+      final store = await _createStore();
+      final directory = await Directory.systemTemp.createTemp('history_media_');
+      addTearDown(() => directory.delete(recursive: true));
+      final file = await File(
+        '${directory.path}/video.mp4',
+      ).writeAsString('video');
+      await store.add(_record('video.mp4', file.path));
+      await store.add(_record('other.mp4', '/other.mp4'));
+      await store.remove(file.path);
+      expect((await store.load()).single.filePath, '/other.mp4');
+      expect(await file.exists(), isTrue);
+    },
+  );
+
+  test(
+    'concurrent history additions and removals do not lose records',
+    () async {
+      final store = await _createStore();
+      await store.add(_record('one.mp4', '/one.mp4'));
+      await Future.wait([
+        store.remove('/one.mp4'),
+        store.add(_record('two.mp4', '/two.mp4')),
+        store.add(_record('three.mp4', '/three.mp4')),
+      ]);
+      expect((await store.load()).map((record) => record.filePath), [
+        '/three.mp4',
+        '/two.mp4',
+      ]);
+    },
+  );
+
+  test(
     'stores completed download records with dedupe and max item limit',
     () async {
       final store = await _createStore(maxItems: 2);

@@ -74,8 +74,14 @@ class DownloadHistoryStore {
 
   final DownloadHistoryFileResolver _fileResolver;
   final int maxItems;
+  Future<void> _pendingWrite = Future<void>.value();
 
   Future<List<DownloadHistoryRecord>> load() async {
+    await _pendingWrite;
+    return _read();
+  }
+
+  Future<List<DownloadHistoryRecord>> _read() async {
     final file = await _fileResolver();
     if (!file.existsSync()) {
       return [];
@@ -99,20 +105,33 @@ class DownloadHistoryStore {
     }
   }
 
-  Future<List<DownloadHistoryRecord>> add(DownloadHistoryRecord record) async {
-    final existingRecords = await load();
-    final records = [
-      record,
-      for (final item in existingRecords)
-        if (item.filePath != record.filePath) item,
-    ].take(maxItems).toList();
+  Future<List<DownloadHistoryRecord>> add(DownloadHistoryRecord record) =>
+      _update(
+        (existingRecords) => [
+          record,
+          for (final item in existingRecords)
+            if (item.filePath != record.filePath) item,
+        ].take(maxItems).toList(),
+      );
 
-    await _write(records);
-    return records;
-  }
+  Future<List<DownloadHistoryRecord>> remove(String path) => _update(
+    (records) => records.where((item) => item.filePath != path).toList(),
+  );
 
   Future<void> clear() async {
-    await _write([]);
+    await _update((_) => []);
+  }
+
+  Future<List<DownloadHistoryRecord>> _update(
+    List<DownloadHistoryRecord> Function(List<DownloadHistoryRecord>) change,
+  ) {
+    final operation = _pendingWrite.then((_) async {
+      final records = change(await _read());
+      await _write(records);
+      return records;
+    });
+    _pendingWrite = operation.then<void>((_) {}, onError: (Object _) {});
+    return operation;
   }
 
   Future<void> _write(List<DownloadHistoryRecord> records) async {

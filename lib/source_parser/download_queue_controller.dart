@@ -174,6 +174,7 @@ class DownloadQueueController extends ChangeNotifier {
   bool _isRunning = false;
   Timer? _downloadElapsedTicker;
   HttpClient? _activeDownloadHttpClient;
+  DownloadTask? _activeTask;
 
   List<DownloadTask> get tasks => List.unmodifiable(_tasks);
   List<DownloadHistoryRecord> get history => List.unmodifiable(_history);
@@ -181,6 +182,49 @@ class DownloadQueueController extends ChangeNotifier {
   bool get hasHistory => _history.isNotEmpty;
   String? get selectedDirectoryPath => _selectedDirectory?.path;
   DownloadSettings get settings => _settings;
+  Set<String> get activeFilePaths => {
+    if (_activeTask?.status == DownloadStatus.downloading)
+      if (_activeTask?.filePath case final String path) path,
+  };
+
+  Future<List<Directory>> fileDirectories() async => [
+    await _downloadDirectoryResolver(),
+    ?_selectedDirectory,
+    for (final record in _history) File(record.filePath).parent,
+  ];
+
+  void removeTask(DownloadTask task) {
+    if (!_tasks.contains(task)) return;
+    cancel(task);
+    _tasks.remove(task);
+    notifyListeners();
+  }
+
+  void clearFinishedTasks() {
+    _tasks.removeWhere(
+      (task) =>
+          task.status != DownloadStatus.pending &&
+          task.status != DownloadStatus.downloading,
+    );
+    notifyListeners();
+  }
+
+  Future<void> removeHistory(String path) async {
+    final records = await _downloadHistoryStore.remove(path);
+    _history
+      ..clear()
+      ..addAll(records);
+    notifyListeners();
+  }
+
+  Future<void> removeFileRecords(String path) async {
+    await removeHistory(path);
+    _tasks.removeWhere(
+      (task) =>
+          task.filePath == path && task.status == DownloadStatus.completed,
+    );
+    notifyListeners();
+  }
 
   Future<void> updateDownloadSettings(DownloadSettings settings) async {
     _settings = settings;
@@ -390,6 +434,7 @@ class DownloadQueueController extends ChangeNotifier {
 
   Future<void> _download(DownloadTask task) async {
     File? outputFile;
+    _activeTask = task;
     try {
       task.clearLogs();
       task.addLog(
@@ -429,6 +474,9 @@ class DownloadQueueController extends ChangeNotifier {
         outputFile = await _downloadHttp(task, directory);
       }
       await _validateDownloadedFile(task, outputFile);
+      if (_cancelRequestedTaskIds.contains(task.id)) {
+        throw const DownloadCanceledException();
+      }
 
       task.progress = 1;
       task.status = DownloadStatus.completed;
@@ -461,6 +509,8 @@ class DownloadQueueController extends ChangeNotifier {
       await outputFile?.deleteIfExists();
       notifyListeners();
     } finally {
+      _activeTask = null;
+      _cancelRequestedTaskIds.remove(task.id);
       _stopDownloadElapsedTicker();
     }
   }
