@@ -91,6 +91,15 @@ void main() {
     expect(logoutCalled, isTrue);
   });
 
+  test('requests public X token through the desktop bridge', () async {
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      expect(call.method, 'xToken');
+      expect(call.arguments, '123');
+      return 'test-token';
+    });
+    expect(await XLoginBridge.publicMediaToken('123'), 'test-token');
+  });
+
   test('returns null when the native login bridge is unavailable', () async {
     expect(await XLoginBridge.isAuthenticated(), isNull);
   });

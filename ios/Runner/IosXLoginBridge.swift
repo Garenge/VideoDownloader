@@ -37,7 +37,7 @@ final class IosXLoginBridge {
             result(FlutterError(code: "login_required", message: "请先通过右上角账号入口登录 X", details: nil))
             return
           }
-          open(url: URL(string: "https://x.com/i/status/\(id)")!, statusID: id, result: result)
+          open(url: Self.postURL(url, statusID: id), statusID: id, result: result)
         }
       default:
         result(FlutterMethodNotImplemented)
@@ -54,14 +54,26 @@ final class IosXLoginBridge {
     return !id.isEmpty && id.count <= 25 && id.allSatisfy({ $0.isASCII && $0.isNumber }) ? id : nil
   }
 
-  private func open(url: URL, statusID: String?, result: @escaping FlutterResult) {
-    let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-    guard browser == nil,
-          let presenter = scenes.filter({ $0.activationState == .foregroundActive })
-            .flatMap(\.windows).first(where: \.isKeyWindow)?.rootViewController,
-          presenter.presentedViewController == nil
-    else {
-      result(FlutterError(code: "busy", message: "请先关闭当前弹窗后重试", details: nil))
+  static func postURL(_ url: URL, statusID: String) -> URL {
+    let parts = url.pathComponents
+    let index = parts.firstIndex(of: "status")!
+    let path = parts.prefix(index + 1).dropFirst().joined(separator: "/")
+    return URL(string: "https://x.com/\(path)/\(statusID)")!
+  }
+
+  private func open(
+    url: URL, statusID: String?, result: @escaping FlutterResult, attempt: Int = 0
+  ) {
+    guard browser == nil else {
+      result(FlutterError(code: "busy", message: "正在登录或读取 X 视频，请等待当前操作完成", details: nil))
+      return
+    }
+    guard let presenter = readyPresenter() else {
+      retryOpen(url: url, statusID: statusID, result: result, attempt: attempt)
+      return
+    }
+    guard presenter.presentedViewController == nil else {
+      retryOpen(url: url, statusID: statusID, result: result, attempt: attempt)
       return
     }
     let controller = IosXBrowserController(session: session, target: url, statusID: statusID) {
@@ -73,5 +85,38 @@ final class IosXLoginBridge {
     let navigation = UINavigationController(rootViewController: controller)
     navigation.isModalInPresentation = true
     presenter.present(navigation, animated: true)
+  }
+
+  private func readyPresenter() -> UIViewController? {
+    let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+    guard let presenter = scenes.filter({ $0.activationState == .foregroundActive })
+      .flatMap(\.windows).first(where: \.isKeyWindow)?.rootViewController,
+      presenter.viewIfLoaded?.window != nil,
+      !presenter.isBeingPresented, !presenter.isBeingDismissed,
+      presenter.transitionCoordinator == nil,
+      presenter.presentedViewController?.isBeingDismissed != true
+    else { return nil }
+    return presenter
+  }
+
+  private func retryOpen(
+    url: URL, statusID: String?, result: @escaping FlutterResult, attempt: Int
+  ) {
+    guard attempt < 30 else {
+      print("ios/Runner/IosXLoginBridge.swift#retryOpen: foreground UI unavailable after waiting")
+      let occupied = readyPresenter()?.presentedViewController != nil
+      result(FlutterError(
+        code: occupied ? "busy" : "not_ready",
+        message: occupied ? "请先关闭当前弹窗后重试" : "应用界面尚未就绪，请回到主界面后重新解析",
+        details: nil
+      ))
+      return
+    }
+    if attempt == 0 {
+      print("ios/Runner/IosXLoginBridge.swift#retryOpen: waiting for foreground UI")
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [self] in
+      open(url: url, statusID: statusID, result: result, attempt: attempt + 1)
+    }
   }
 }

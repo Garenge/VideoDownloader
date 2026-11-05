@@ -1,5 +1,6 @@
 import Cocoa
 import FlutterMacOS
+import JavaScriptCore
 
 private let kRevealInFinderChannel = "videodownloader/reveal_in_finder"
 private let kXLoginChannel = "videodownloader/x_login"
@@ -100,6 +101,16 @@ class MainFlutterWindow: NSWindow {
         return
       }
       switch call.method {
+      case "xToken":
+        guard let id = call.arguments as? String, !id.isEmpty,
+              id.allSatisfy({ $0.isASCII && $0.isNumber })
+        else {
+          result(FlutterError(code: "bad_args", message: "Invalid X status ID", details: nil))
+          return
+        }
+        result(JSContext()?.evaluateScript(
+          "((Number('\(id)') / 1e15) * Math.PI).toString(36).replace(/(0+|\\.)/g, '')"
+        )?.toString())
       case "login":
         self.xLoginController.openLogin { authenticated in result(authenticated) }
       case "exportCookies":

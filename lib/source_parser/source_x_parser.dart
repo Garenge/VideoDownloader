@@ -1,5 +1,20 @@
 part of 'source_parser_service.dart';
 
+extension _XPlatformParsing on SourceParserService {
+  Future<List<SourceResource>> _extractXPlatformResources(Uri pageUri) async {
+    if (_normalizedXStatusUri(pageUri) == null) return const [];
+    try {
+      return await _xPublicResolver.resolve(_client, pageUri);
+    } on Object catch (error) {
+      debugPrint(
+        'lib/source_parser/source_x_parser.dart#_extractXPlatformResources: '
+        '公开媒体解析失败，保留视频任务回退：$error',
+      );
+      return _extractXResources(pageUri);
+    }
+  }
+}
+
 List<SourceResource> _extractXResources(Uri pageUri) {
   final normalizedStatusUri = _normalizedXStatusUri(pageUri);
   if (normalizedStatusUri == null) {

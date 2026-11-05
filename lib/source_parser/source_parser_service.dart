@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:html/dom.dart' as dom;
+import 'package:flutter/foundation.dart';
 import 'package:html/parser.dart' as html_parser;
 import 'package:http/http.dart' as http;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart' show VideoId;
@@ -27,6 +28,7 @@ class SourceParserService {
   }) : _client = client ?? http.Client(),
        _ownsClient = ownClient ?? (client == null),
        _useNativeDownloads = useNativeDownloads ?? Platform.isIOS,
+       _xPublicResolver = xPublicVideoResolver ?? XPublicVideoResolver(),
        _iosXVideoResolver = IosXVideoResolver(
          publicResolver: xPublicVideoResolver ?? XPublicVideoResolver(),
          sessionResolver: xSessionResolver,
@@ -36,6 +38,7 @@ class SourceParserService {
   bool _ownsClient;
   final bool _useNativeDownloads;
   final IosXVideoResolver _iosXVideoResolver;
+  final XPublicVideoResolver _xPublicResolver;
 
   void replaceHttpClient(http.Client newClient) {
     if (_ownsClient) {
@@ -84,6 +87,14 @@ class SourceParserService {
       uri,
       requestedPlatform,
     );
+    if (requestedPlatform == SourcePlatform.x &&
+        fallbackPlatformResources.any((resource) => !resource.requiresYtDlp)) {
+      return SourceParseResult(
+        originalUrl: uri.toString(),
+        platform: requestedPlatform,
+        resources: fallbackPlatformResources,
+      );
+    }
 
     http.Response response;
     try {
@@ -168,7 +179,7 @@ class SourceParserService {
         _client,
         pageUri,
       ),
-      SourcePlatform.x => Future.value(_extractXResources(pageUri)),
+      SourcePlatform.x => _extractXPlatformResources(pageUri),
       SourcePlatform.douyin ||
       SourcePlatform.bilibili ||
       SourcePlatform.other => Future.value(const []),

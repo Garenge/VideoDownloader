@@ -9,6 +9,7 @@ import 'package:http/testing.dart';
 import 'package:videodownloader/main.dart';
 import 'package:videodownloader/source_parser/download_history_store.dart';
 import 'package:videodownloader/source_parser/incoming_link_bridge.dart';
+import 'package:videodownloader/source_parser/ios/x_public_video_resolver.dart';
 import 'package:videodownloader/source_parser/parse_history_store.dart';
 import 'package:videodownloader/source_parser/source_parser_home_page.dart';
 import 'package:videodownloader/source_parser/source_resource.dart';
@@ -205,6 +206,50 @@ void main() {
     expect(find.text('继续下载'), findsOneWidget);
   });
 
+  testWidgets('shows X photos in the image category without a video task', (
+    tester,
+  ) async {
+    await _pumpParsedHomePage(
+      tester,
+      initialUrl: 'https://x.com/demo/status/123',
+      xMediaResolver: XPublicVideoResolver(
+        tokenGenerator: (_) async => 'token',
+      ),
+      htmlFixture: jsonEncode({
+        'mediaDetails': [
+          {
+            'type': 'photo',
+            'media_url_https': 'https://pbs.twimg.com/media/a.jpg',
+          },
+          {
+            'type': 'photo',
+            'media_url_https': 'https://pbs.twimg.com/media/b.png',
+          },
+        ],
+      }),
+    );
+    expect(find.text('图片 2'), findsOneWidget);
+    expect(find.text('视频 0'), findsOneWidget);
+    await tester.tap(find.text('图片 2'));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(
+        const ValueKey(
+          'resource-download-https://pbs.twimg.com/media/a.jpg?name=orig',
+        ),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(
+        const ValueKey(
+          'resource-preview-image-https://pbs.twimg.com/media/a.jpg?name=orig',
+        ),
+      ),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('blocks x download queue entry when preflight finds no video', (
     tester,
   ) async {
@@ -392,10 +437,17 @@ Future<void> _pumpParsedHomePage(
   ParseHistoryStore? parseHistoryStore,
   String htmlFixture = _htmlFixture,
   String initialUrl = 'https://www.youtube.com/watch?v=demo',
+  XPublicVideoResolver? xMediaResolver,
   Future<XVideoPreflightResult> Function(SourceResource resource)?
   xVideoPreflightProbe,
 }) async {
   final parserService = SourceParserService(
+    xPublicVideoResolver:
+        xMediaResolver ??
+        XPublicVideoResolver(
+          tokenGenerator: (_) async =>
+              throw const SourceParserException('公开接口不可用，验证视频任务回退'),
+        ),
     client: MockClient((request) async {
       if (_looksLikeThumbnailRequest(request.url)) {
         return http.Response.bytes(
@@ -422,7 +474,7 @@ Future<void> _pumpParsedHomePage(
 
   await tester.enterText(find.widgetWithText(TextField, '目标 URL'), initialUrl);
   await tester.tap(find.text('解析'));
-  await _pumpUntilFound(tester, find.text('YouTube'));
+  await _pumpUntilFound(tester, _resourceSearchField);
 }
 
 Future<void> _selectDropdownValue(

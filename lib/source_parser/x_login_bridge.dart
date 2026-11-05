@@ -47,6 +47,14 @@ class XLoginBridge {
     );
   }
 
+  static Future<String> publicMediaToken(String statusId) async {
+    final token = await _channel.invokeMethod<String>('xToken', statusId);
+    if (token == null || token.isEmpty) {
+      throw StateError('X 公开媒体解析模块未就绪');
+    }
+    return token;
+  }
+
   static Future<T?> withCookieFile<T>(
     Future<T> Function(String cookieFilePath) action,
   ) async {

@@ -1,8 +1,11 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
 import '../parse_failure_message.dart';
 import '../source_resource.dart';
 import '../x_login_bridge.dart';
+import '../x_media_url.dart';
 import 'x_public_video_resolver.dart';
 
 /// A logged-in webpage uses its own on-device cookies; no session secrets enter Dart.
@@ -22,31 +25,40 @@ class IosXVideoResolver {
       if (sessionUrls == null) {
         return await _publicResolver.resolve(client, page);
       }
-      final urls = sessionUrls.toSet().where(_isTrustedVideo).toList();
+      final urls = sessionUrls
+          .where((url) => xMediaType(url) != null)
+          .map(
+            (url) => xMediaType(url) == SourceResourceType.image
+                ? originalXImageUrl(url)
+                : url,
+          )
+          .toSet()
+          .toList();
       if (urls.isEmpty) {
-        throw const SourceParserException('当前账号未能读取此帖子的 MP4，请检查登录状态或帖子访问权限。');
+        throw const SourceParserException(
+          '当前账号未能读取此帖子的图片或 MP4，请检查登录状态或帖子访问权限。',
+        );
       }
       return [
         for (var index = 0; index < urls.length; index++)
           SourceResource(
-            title: 'X 视频 · ${index + 1}',
+            title: 'X ${xMediaType(urls[index])!.displayName} · ${index + 1}',
             url: urls[index],
-            type: SourceResourceType.video,
+            type: xMediaType(urls[index])!,
             platform: SourcePlatform.x,
             host: Uri.parse(urls[index]).host,
             sizeHint: 'X 登录会话 · 应用内下载',
           ),
       ];
-    } on Object catch (error) {
+    } on Object catch (error, stack) {
+      final detail = error is PlatformException
+          ? 'code=${error.code} message=${error.message} details=${error.details}'
+          : parseFailureMessage(error);
+      debugPrint(
+        'lib/source_parser/ios/ios_x_video_resolver.dart#resolve: '
+        '解析失败 $detail\n$stack',
+      );
       throw SourceParserException(parseFailureMessage(error));
     }
-  }
-
-  bool _isTrustedVideo(String value) {
-    final uri = Uri.tryParse(value);
-    return uri != null &&
-        uri.scheme == 'https' &&
-        (uri.host == 'video.twimg.com' ||
-            uri.host.endsWith('.video.twimg.com'));
   }
 }
