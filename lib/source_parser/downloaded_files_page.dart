@@ -3,6 +3,7 @@ import 'download_queue_controller.dart';
 import 'downloaded_file_actions.dart';
 import 'downloaded_file_store.dart';
 import 'downloaded_file_tile.dart';
+import 'player/local_video_page.dart';
 
 class DownloadedFilesPage extends StatefulWidget {
   const DownloadedFilesPage({super.key, required this.queue, this.store});
@@ -102,6 +103,16 @@ class _DownloadedFilesPageState extends State<DownloadedFilesPage>
     await _refresh();
   }
 
+  Future<void> _open(DownloadedFile file) async {
+    if (file.isVideo) {
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute(builder: (_) => LocalVideoPage(file: file)),
+      );
+    } else {
+      await DownloadedFileActions.open(file);
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
@@ -168,7 +179,7 @@ class _DownloadedFilesPageState extends State<DownloadedFilesPage>
           for (final file in files)
             DownloadedFileTile(
               file: file,
-              onOpen: () => _perform(() => DownloadedFileActions.open(file)),
+              onOpen: () => _perform(() => _open(file)),
               onShare: () => _perform(() => DownloadedFileActions.share(file)),
               onDelete: () => _delete(file),
             ),
