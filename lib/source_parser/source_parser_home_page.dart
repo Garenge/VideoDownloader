@@ -206,6 +206,7 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
   bool _networkReady = false;
   bool _downloadSettingsReady = false;
   bool _downloadToolStatusReady = false;
+  bool _isBatchDownloading = false;
   bool _hasShownStartupToolWarning = false;
   bool _hasCheckedStartupXLogin = false;
   bool _xAuthenticated = false;
@@ -1168,16 +1169,88 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
     _enqueueDownload(resource);
   }
 
+  Future<void> _handleDownloadAll(List<SourceResource> resources) async {
+    if (_isBatchDownloading || resources.isEmpty) {
+      return;
+    }
+
+    final uniqueResources = <String, SourceResource>{
+      for (final resource in resources) resource.url: resource,
+    }.values.toList();
+    final candidates = Platform.isIOS
+        ? uniqueResources
+              .where((resource) => !resource.requiresFfmpegPostProcess)
+              .toList()
+        : uniqueResources;
+    if (candidates.isEmpty) {
+      _showPageToast('iOS 暂不支持 HLS / DASH 清单下载');
+      return;
+    }
+
+    setState(() => _isBatchDownloading = true);
+    try {
+      final readyResources = await _preflightBatchResources(candidates);
+      if (!mounted || readyResources.isEmpty) {
+        return;
+      }
+
+      final ffmpegResource = readyResources
+          .where((resource) => resource.requiresFfmpegPostProcess)
+          .firstOrNull;
+      final allowFfmpegResources =
+          ffmpegResource == null ||
+          await _showDownloadPreparationPrompt(ffmpegResource) == true;
+      final queuedResources = readyResources.where(
+        (resource) =>
+            allowFfmpegResources || !resource.requiresFfmpegPostProcess,
+      );
+      for (final resource in queuedResources) {
+        _enqueueDownload(resource, showToast: false);
+      }
+
+      if (mounted) {
+        final queuedCount = queuedResources.length;
+        final skippedCount = uniqueResources.length - queuedCount;
+        _showPageToast(
+          skippedCount > 0
+              ? '已加入下载队列：$queuedCount 个，跳过：$skippedCount 个'
+              : '已加入下载队列：$queuedCount 个资源',
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isBatchDownloading = false);
+      }
+    }
+  }
+
+  Future<List<SourceResource>> _preflightBatchResources(
+    List<SourceResource> resources,
+  ) async {
+    final readyResources = <SourceResource>[];
+    for (final resource in resources) {
+      final result = await _maybeProbeXVideoBeforeDownload(resource);
+      if (!mounted) {
+        return readyResources;
+      }
+      if (result.ok) {
+        readyResources.add(resource);
+      } else {
+        await _showXPreflightFailureDialog(resource, result);
+      }
+    }
+    return readyResources;
+  }
+
   bool _needsDownloadPreflightToast(SourceResource resource) {
     return resource.requiresYtDlp && resource.platform == SourcePlatform.x;
   }
 
-  void _enqueueDownload(SourceResource resource) {
+  void _enqueueDownload(SourceResource resource, {bool showToast = true}) {
     final task = _downloadQueueController!.enqueue(resource);
-    setState(() {
-      _downloadPanelOpen = true;
-    });
-    _showPageToast('已加入下载队列：${task.fileName}');
+    if (showToast) {
+      _showPageToast('已加入下载队列：${task.fileName}');
+    }
   }
 
   Future<XVideoPreflightResult> _maybeProbeXVideoBeforeDownload(
@@ -2093,14 +2166,26 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
             ),
             if (_recentUrls.isNotEmpty) ...[
               const SizedBox(height: 12),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: OutlinedButton.icon(
-                  key: const ValueKey('open-recent-urls-button'),
-                  onPressed: _openRecentUrlHistory,
-                  icon: const Icon(Icons.history),
-                  label: Text('最近解析 (${_recentUrls.length})'),
-                ),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final compact = constraints.maxWidth < 480;
+                  return Align(
+                    alignment: Alignment.centerLeft,
+                    child: compact
+                        ? IconButton(
+                            key: const ValueKey('open-recent-urls-button'),
+                            tooltip: '最近解析',
+                            onPressed: _openRecentUrlHistory,
+                            icon: const Icon(Icons.history),
+                          )
+                        : OutlinedButton.icon(
+                            key: const ValueKey('open-recent-urls-button'),
+                            onPressed: _openRecentUrlHistory,
+                            icon: const Icon(Icons.history),
+                            label: Text('最近解析 (${_recentUrls.length})'),
+                          ),
+                  );
+                },
               ),
             ],
             if (_isParsing) ...[
@@ -2419,7 +2504,9 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
             _ResourceTile(
               resource: resource,
               imageRequestReferrer: imageRequestReferrer,
-              isResolving: _resolvingResourceUrls.contains(resource.url),
+              isResolving:
+                  _isBatchDownloading ||
+                  _resolvingResourceUrls.contains(resource.url),
               onDownload: () => _handleDownload(resource),
             ),
             if (resource != resources.last) const Divider(height: 14),
@@ -2485,33 +2572,71 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
       decoration: _panelDecoration(context),
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            Icon(_platformIcon(result.platform)),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    result.platform.displayName,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final heading = Row(
+              children: [
+                Icon(_platformIcon(result.platform)),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        result.platform.displayName,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                      Text(
+                        result.originalUrl,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
                   ),
-                  Text(
-                    result.originalUrl,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
+                ),
+                _CountPill(label: '资源', count: result.resources.length),
+              ],
+            );
+            final downloadButton = FilledButton.icon(
+              key: const ValueKey('download-all-resources-button'),
+              onPressed: _isBatchDownloading || result.resources.isEmpty
+                  ? null
+                  : () => _handleDownloadAll(result.resources),
+              icon: _isBatchDownloading
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.download),
+              label: Text(_isBatchDownloading ? '处理中' : '全部下载'),
+            );
+
+            if (constraints.maxWidth < 600) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  heading,
+                  const SizedBox(height: 12),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: downloadButton,
                   ),
                 ],
-              ),
-            ),
-            _CountPill(label: '资源', count: result.resources.length),
-          ],
+              );
+            }
+
+            return Row(
+              children: [
+                Expanded(child: heading),
+                const SizedBox(width: 12),
+                downloadButton,
+              ],
+            );
+          },
         ),
       ),
     );

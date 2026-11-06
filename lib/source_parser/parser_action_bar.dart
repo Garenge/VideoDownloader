@@ -17,16 +17,25 @@ class ParserActionBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
+      final compact = constraints.maxWidth < 480;
       final actions = Wrap(
         spacing: 8,
         runSpacing: 8,
         children: [
-          OutlinedButton.icon(
-            key: const ValueKey('open-in-browser-button'),
-            onPressed: onOpenBrowser,
-            icon: const Icon(Icons.open_in_browser),
-            label: const Text('在浏览器打开'),
-          ),
+          if (compact)
+            IconButton(
+              key: const ValueKey('open-in-browser-button'),
+              tooltip: '在浏览器打开',
+              onPressed: onOpenBrowser,
+              icon: const Icon(Icons.open_in_browser),
+            )
+          else
+            OutlinedButton.icon(
+              key: const ValueKey('open-in-browser-button'),
+              onPressed: onOpenBrowser,
+              icon: const Icon(Icons.open_in_browser),
+              label: const Text('在浏览器打开'),
+            ),
           FilledButton.icon(
             onPressed: isParsing ? null : onParse,
             icon: isParsing
@@ -39,7 +48,7 @@ class ParserActionBar extends StatelessWidget {
           ),
         ],
       );
-      if (constraints.maxWidth < 480) {
+      if (compact) {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [hints, const SizedBox(height: 12), actions],

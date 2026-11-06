@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:videodownloader/main.dart';
+import 'package:videodownloader/source_parser/download_activity_overlay.dart';
 import 'package:videodownloader/source_parser/download_history_store.dart';
 import 'package:videodownloader/source_parser/incoming_link_bridge.dart';
 import 'package:videodownloader/source_parser/ios/x_public_video_resolver.dart';
@@ -176,6 +177,18 @@ void main() {
     expect(await historyStore.load(), isEmpty);
   });
 
+  testWidgets('compact parser panel hides recent count', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await _pumpParsedHomePage(tester);
+
+    expect(find.byTooltip('最近解析'), findsOneWidget);
+    expect(find.textContaining('最近解析 ('), findsNothing);
+  });
+
   testWidgets('warns before downloading hls playlist resources', (
     tester,
   ) async {
@@ -204,6 +217,19 @@ void main() {
     expect(find.textContaining('HLS 播放列表资源'), findsOneWidget);
     expect(find.textContaining('当前未检测到 ffmpeg'), findsOneWidget);
     expect(find.text('继续下载'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('download-all-resources-button')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('继续下载'));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(
+      tester
+          .widget<DownloadActivityOverlay>(find.byType(DownloadActivityOverlay))
+          .panelOpen,
+      isFalse,
+    );
   });
 
   testWidgets('shows X photos in the image category without a video task', (

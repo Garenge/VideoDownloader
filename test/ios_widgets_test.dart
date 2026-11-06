@@ -32,6 +32,8 @@ void main() {
     );
     expect(tester.takeException(), isNull);
     expect(find.text('解析'), findsOneWidget);
+    expect(find.text('在浏览器打开'), findsNothing);
+    expect(find.byTooltip('在浏览器打开'), findsOneWidget);
   });
 
   testWidgets(
