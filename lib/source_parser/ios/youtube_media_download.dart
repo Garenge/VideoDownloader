@@ -7,8 +7,10 @@ import 'ios_download_operation.dart';
 
 /// Keeps formats separate so newly selected streams never reuse different bytes.
 class YoutubeMediaDownload {
-  static File mediaFile(Directory workspace, StreamInfo info) =>
-      File('${workspace.path}/${info.tag}-${info.size.totalBytes}.part');
+  // Workspaces are hidden; keep the media extension for the native merger.
+  static File mediaFile(Directory workspace, StreamInfo info) => File(
+    '${workspace.path}/${info.tag}-${info.size.totalBytes}.${info.container.name}',
+  );
 
   static Future<File> save({
     required YoutubeHttpClient transport,
@@ -23,8 +25,8 @@ class YoutubeMediaDownload {
     var offset = await file.exists() ? await file.length() : 0;
     if (offset > size || info.fragments.isNotEmpty) offset = 0;
     if (offset == size && size > 0) {
-      operation.task.receivedBytes = completedBytes + size;
-      operation.onProgress();
+      operation.checkCanceled();
+      operation.updateReceived(completedBytes + size);
       return file;
     }
     if (info is HlsMuxedStreamInfo ||

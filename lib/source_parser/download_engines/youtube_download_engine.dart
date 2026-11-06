@@ -553,9 +553,6 @@ class YouTubeDownloadEngine extends DownloadEngine {
     final suggestedBaseName = _suggestYouTubeBaseName(task);
     task.fileName = '$suggestedBaseName.mp4';
     task.filePath = null;
-    task.progress = 0;
-    task.receivedBytes = 0;
-    task.totalBytes = null;
     task.addLog(
       'lib/source_parser/download_engines/youtube_download_engine.dart#_prepareYtDlpPlan: '
       'workspace=${pathLogLabel(workspaceDirectory.path)} target=${task.fileName}',

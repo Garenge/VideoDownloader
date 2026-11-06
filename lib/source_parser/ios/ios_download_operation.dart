@@ -50,18 +50,12 @@ class IosDownloadOperation {
     final sink = file.openWrite(
       mode: offset > 0 ? FileMode.append : FileMode.write,
     );
-    task.receivedBytes = completedBytes + offset;
-    onProgress();
+    updateReceived(completedBytes + offset);
     try {
       while (await wait(iterator.moveNext())) {
         checkCanceled();
         sink.add(iterator.current);
-        task.receivedBytes += iterator.current.length;
-        final total = task.totalBytes;
-        if (total != null && total > 0) {
-          task.progress = (task.receivedBytes / total).clamp(0, 1);
-        }
-        onProgress();
+        updateReceived(task.receivedBytes + iterator.current.length);
       }
       await sink.flush();
     } finally {
@@ -72,6 +66,15 @@ class IosDownloadOperation {
     if (received == 0 || (expectedBytes > 0 && received != expectedBytes)) {
       throw const DownloadException('媒体数据不完整，请重试下载');
     }
+  }
+
+  void updateReceived(int received) {
+    task.receivedBytes = received;
+    final total = task.totalBytes;
+    if (total != null && total > 0) {
+      task.progress = (received / total).clamp(0, 1);
+    }
+    onProgress();
   }
 }
 

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -27,8 +28,8 @@ void main() {
     'requests persisted length and validator and appends a valid 206',
     () async {
       await File(
-        '${partial.path}.json',
-      ).writeAsString('{"validator":"\\\"v1\\\""}');
+        '${partial.parent.path}/.${partial.uri.pathSegments.last}.json',
+      ).writeAsString(jsonEncode({'validator': '"v1"'}));
       await transfer(
         MockClient((request) async {
           expect(request.headers['Range'], 'bytes=3-');
@@ -82,6 +83,28 @@ void main() {
     );
     expect(await partial.readAsString(), 'abc');
   });
+
+  test(
+    'rejects a changed validator on an otherwise valid partial response',
+    () async {
+      await File(
+        '${partial.parent.path}/.${partial.uri.pathSegments.last}.json',
+      ).writeAsString(jsonEncode({'validator': '"old"'}));
+      await expectLater(
+        transfer(
+          MockClient(
+            (_) async => http.Response(
+              'def',
+              206,
+              headers: {'content-range': 'bytes 3-5/6', 'etag': '"new"'},
+            ),
+          ),
+        ),
+        throwsA(isA<DownloadException>()),
+      );
+      expect(await partial.readAsString(), 'abc');
+    },
+  );
 
   test(
     'retains partial data after a network failure for the next request',

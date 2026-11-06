@@ -397,9 +397,6 @@ class XDownloadEngine extends DownloadEngine {
     final suggestedBaseName = _suggestBaseName(task);
     task.fileName = '$suggestedBaseName.mp4';
     task.filePath = null;
-    task.progress = 0;
-    task.receivedBytes = 0;
-    task.totalBytes = null;
     task.addLog(
       'lib/source_parser/download_engines/x_download_engine.dart#_preparePlan: '
       'workspace=${pathLogLabel(workspaceDirectory.path)} target=${task.fileName}',

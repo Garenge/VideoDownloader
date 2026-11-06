@@ -26,6 +26,15 @@ described below differs from the iOS feature set.
 - Common web page fetching and HTML resource extraction are connected.
 - Download queue is connected. Resources can be queued and saved into the app's
   `VideoDownloader` documents folder.
+- Download tasks, destinations, and progress are saved locally. Reopening the
+  app automatically resumes interrupted and waiting tasks; failed and canceled
+  tasks remain available for manual retry.
+- Direct downloads keep `.part` files and use HTTP Range / If-Range to resume.
+  Servers returning the whole file cause a clean restart. YouTube built-in
+  downloads reuse bytes for the same stream format, and YouTube / X `yt-dlp`
+  downloads reuse their task workspaces. Expired direct links may need parsing
+  again. Recovery starts when the app reopens; it does not keep a killed app
+  running. Downloads interrupted before this version cannot be recovered.
 - Users can choose a custom download directory and reset to the default app
   documents directory.
 - Completed download tasks can open their containing folder from the queue.

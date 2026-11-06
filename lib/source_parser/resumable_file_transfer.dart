@@ -25,7 +25,7 @@ class ResumableFileTransfer {
     var response = await _request(uri, offset, validator);
     // A 416 response is not sufficient proof that local bytes are complete.
     if (response.statusCode == 416 && offset > 0) {
-      await response.stream.drain<void>();
+      await _wait(response.stream.drain<void>());
       offset = 0;
       response = await _request(uri, 0, null);
     }

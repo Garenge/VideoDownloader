@@ -61,6 +61,25 @@ void main() {
     );
   });
 
+  test(
+    'appends resumed media and includes previously completed audio or video',
+    () async {
+      final file = File('${directory.path}/video.mp4');
+      await file.writeAsBytes([1, 2]);
+      task.totalBytes = 14;
+      await operation.save(
+        Stream.value([3, 4]),
+        file,
+        expectedBytes: 4,
+        offset: 2,
+        completedBytes: 10,
+      );
+      expect(await file.readAsBytes(), [1, 2, 3, 4]);
+      expect(task.receivedBytes, 14);
+      expect(task.progress, 1);
+    },
+  );
+
   test('cancels an idle stream without waiting for the next chunk', () async {
     var subscriptionCanceled = false;
     final stream = StreamController<List<int>>(

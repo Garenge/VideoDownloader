@@ -39,6 +39,7 @@ class IosYouTubeDownloadEngine extends DownloadEngine {
     );
     await workspace.create(recursive: true);
     File? output;
+    var completed = false;
     try {
       task.statusDetail = 'YouTube：应用内解析视频…';
       onProgressUpdated();
@@ -89,6 +90,7 @@ class IosYouTubeDownloadEngine extends DownloadEngine {
       }
       operation.checkCanceled();
       task.filePath = output.path;
+      completed = true;
       return output;
     } on Object catch (error) {
       if (output != null && await output.exists()) await output.delete();
@@ -97,7 +99,7 @@ class IosYouTubeDownloadEngine extends DownloadEngine {
       throw DownloadException('YouTube 应用内下载失败：$error');
     } finally {
       yt.close();
-      if (task.filePath != null || isCancelRequested()) {
+      if (completed || isCancelRequested()) {
         await workspace.delete(recursive: true);
       }
     }

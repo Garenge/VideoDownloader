@@ -6,6 +6,7 @@ import 'package:http/testing.dart';
 import 'package:videodownloader/source_parser/download_history_store.dart';
 import 'package:videodownloader/source_parser/download_queue_controller.dart';
 import 'package:videodownloader/source_parser/download_queue_store.dart';
+import 'package:videodownloader/source_parser/download_settings.dart';
 import 'package:videodownloader/source_parser/source_resource.dart';
 
 const resource = SourceResource(
@@ -128,6 +129,67 @@ void main() {
       await controller.flushQueue();
     },
   );
+
+  for (final platform in [SourcePlatform.youtube, SourcePlatform.x]) {
+    test(
+      'restored ${platform.name} yt-dlp task reuses its workspace',
+      () async {
+        final source = SourceResource(
+          title: 'video',
+          url: 'https://example.com/watch',
+          type: SourceResourceType.video,
+          platform: platform,
+          host: 'example.com',
+          sizeHint: '',
+          youtubeVideoId: platform == SourcePlatform.youtube
+              ? 'dQw4w9WgXcQ'
+              : null,
+          requiresYtDlp: platform == SourcePlatform.x,
+        );
+        final workspace = Directory(
+          '${directory.path}/.videodownloader_${platform.name}/restored',
+        );
+        await workspace.create(recursive: true);
+        final fragment = File('${workspace.path}/download.mp4.part');
+        await fragment.writeAsString('partial');
+        await store.save([
+          DownloadTask(id: 'restored', resource: source, fileName: 'video.mp4')
+            ..status = DownloadStatus.downloading
+            ..directoryPath = directory.path
+            ..receivedBytes = 3
+            ..totalBytes = 6
+            ..progress = 0.5,
+        ]);
+        final controller = DownloadQueueController(
+          downloadQueueStore: store,
+          downloadDirectoryResolver: () async => directory,
+          downloadHistoryStore: DownloadHistoryStore(
+            fileResolver: () async => File('${directory.path}/history.json'),
+          ),
+          downloadSettings: const DownloadSettings.defaults(),
+          processStarter: (executable, arguments) async {
+            expect(arguments, contains('--continue'));
+            expect(await fragment.readAsString(), 'partial');
+            await File(
+              '${workspace.path}/download.mp4',
+            ).writeAsString('complete');
+            return Process.start('sh', ['-c', 'exit 0']);
+          },
+        );
+        addTearDown(() async {
+          controller.dispose();
+          await controller.flushQueue();
+        });
+        await controller.ready;
+        await waitForCompletion(controller);
+        expect(
+          await File(controller.tasks.single.filePath!).readAsString(),
+          'complete',
+        );
+        expect(await workspace.exists(), isFalse);
+      },
+    );
+  }
 }
 
 Future<void> waitForCompletion(DownloadQueueController controller) async {
@@ -136,8 +198,9 @@ Future<void> waitForCompletion(DownloadQueueController controller) async {
         controller.tasks.every(
           (task) => task.status == DownloadStatus.completed,
         ) &&
-        controller.history.isNotEmpty)
+        controller.history.isNotEmpty) {
       return;
+    }
     await Future<void>.delayed(const Duration(milliseconds: 10));
   }
   fail(

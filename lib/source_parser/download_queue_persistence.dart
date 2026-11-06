@@ -40,7 +40,7 @@ class DownloadQueuePersistence {
     if (structure != _lastStructure) {
       _lastStructure = structure;
       unawaited(flush());
-    } else {
+    } else if (tasks.any((task) => task.status == DownloadStatus.downloading)) {
       _timer ??= Timer(const Duration(milliseconds: 500), () {
         _timer = null;
         unawaited(flush());
