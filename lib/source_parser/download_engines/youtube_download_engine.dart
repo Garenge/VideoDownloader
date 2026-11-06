@@ -10,6 +10,8 @@ import '../download_queue_controller.dart'
 import '../download_settings.dart';
 import '../path_log_label.dart';
 import 'download_engine.dart';
+import '../ios/ios_download_operation.dart';
+import '../ios/youtube_media_download.dart';
 
 /// 在等待 [future] 期间周期性检查 [isCancelRequested]，以便长时间的 await 也能响应取消。
 Future<T> _awaitUnlessCanceled<T>(
@@ -104,7 +106,7 @@ class YouTubeDownloadEngine extends DownloadEngine {
     );
     task.statusDetail = 'YouTube：使用 yt-dlp 独立下载流程…';
     onProgressUpdated();
-    return _downloadViaYtDlpWithStatus(
+    return await _downloadViaYtDlpWithStatus(
       task: task,
       directory: directory,
       settings: settings,
@@ -127,9 +129,8 @@ class YouTubeDownloadEngine extends DownloadEngine {
     required String videoId,
   }) async {
     // Prevent YoutubeExplode.close() from closing the shared queue client.
-    final yt = YoutubeExplode(
-      httpClient: YoutubeHttpClient(_NonClosingHttpClient(_client)),
-    );
+    final transport = YoutubeHttpClient(_NonClosingHttpClient(_client));
+    final yt = YoutubeExplode(httpClient: transport);
     File? outputFile;
     try {
       task.addLog(
@@ -166,7 +167,7 @@ class YouTubeDownloadEngine extends DownloadEngine {
             '当前视频仅提供 HLS 或分离音视频流，应用内直连下载暂不支持，请开启 yt-dlp 兜底后重试',
           );
         }
-        return _downloadViaYtDlpWithStatus(
+        return await _downloadViaYtDlpWithStatus(
           task: task,
           directory: directory,
           settings: settings,
@@ -189,34 +190,25 @@ class YouTubeDownloadEngine extends DownloadEngine {
       outputFile = outFile;
       task.totalBytes = streamInfo.size.totalBytes;
       task.filePath = outFile.path;
-      task.receivedBytes = 0;
-      task.progress = 0;
       task.statusDetail = 'YouTube：正在下载视频流…';
       onProgressUpdated();
-
-      final mediaStream = yt.videos.streamsClient.get(streamInfo);
-      final sink = outFile.openWrite();
-      try {
-        await for (final chunk in mediaStream) {
-          if (isCancelRequested()) {
-            throw const DownloadCanceledException();
-          }
-
-          task.receivedBytes += chunk.length;
-          if (task.statusDetail != null) {
-            task.statusDetail = null;
-          }
-          final totalBytes = task.totalBytes;
-          if (totalBytes != null && totalBytes > 0) {
-            task.progress = task.receivedBytes / totalBytes;
-          }
-
-          sink.add(chunk);
-          onProgressUpdated();
-        }
-      } finally {
-        await sink.close();
-      }
+      final workspace = Directory(
+        '${directory.path}/.videodownloader_builtin/${task.id}',
+      );
+      await workspace.create(recursive: true);
+      final partial = await YoutubeMediaDownload.save(
+        transport: transport,
+        youtube: yt,
+        info: streamInfo,
+        workspace: workspace,
+        operation: IosDownloadOperation(
+          task: task,
+          isCanceled: isCancelRequested,
+          onProgress: onProgressUpdated,
+        ),
+      );
+      await partial.rename(outFile.path);
+      await workspace.delete(recursive: true);
 
       return outFile;
     } on DownloadCanceledException {
@@ -462,7 +454,7 @@ class YouTubeDownloadEngine extends DownloadEngine {
           'lib/source_parser/download_engines/youtube_download_engine.dart#_downloadViaYtDlp: stream mode failed, fallback to legacy mode error=$error',
         );
         process.kill(ProcessSignal.sigterm);
-        return _downloadViaYtDlpLegacy(
+        return await _downloadViaYtDlpLegacy(
           task: task,
           plan: plan,
           args: args,
@@ -487,7 +479,7 @@ class YouTubeDownloadEngine extends DownloadEngine {
             'lib/source_parser/download_engines/youtube_download_engine.dart#_downloadViaYtDlp: detected proxy failure, retry with --proxy ""',
           );
           final noProxyArgs = [...args, '--proxy', ''];
-          return _downloadViaYtDlpLegacy(
+          return await _downloadViaYtDlpLegacy(
             task: task,
             plan: plan,
             args: noProxyArgs,
@@ -501,7 +493,7 @@ class YouTubeDownloadEngine extends DownloadEngine {
         throw DownloadException(_friendlyYtDlpError(detail, exitCode));
       }
 
-      return _finalizeYtDlpDownload(
+      return await _finalizeYtDlpDownload(
         task: task,
         directory: directory,
         plan: plan,
@@ -512,7 +504,7 @@ class YouTubeDownloadEngine extends DownloadEngine {
       await _deleteDirectoryIfExists(plan.workspaceDirectory);
       rethrow;
     } on Object {
-      await _deleteDirectoryIfExists(plan.workspaceDirectory);
+      // Preserve fragments and yt-dlp metadata for the next attempt.
       rethrow;
     }
   }
@@ -525,6 +517,7 @@ class YouTubeDownloadEngine extends DownloadEngine {
     final ffmpegLocation = _existingExecutablePath('ffmpeg');
 
     return <String>[
+      '--continue',
       '--no-playlist',
       '--newline',
       '--progress',
@@ -556,7 +549,6 @@ class YouTubeDownloadEngine extends DownloadEngine {
     final workspaceDirectory = Directory(
       '${directory.path}/.videodownloader_youtube/${task.id}',
     );
-    await _deleteDirectoryIfExists(workspaceDirectory);
     await workspaceDirectory.create(recursive: true);
     final suggestedBaseName = _suggestYouTubeBaseName(task);
     task.fileName = '$suggestedBaseName.mp4';
@@ -829,7 +821,7 @@ class YouTubeDownloadEngine extends DownloadEngine {
           'lib/source_parser/download_engines/youtube_download_engine.dart#_downloadViaYtDlpLegacy: detected proxy failure, retry with --proxy ""',
         );
         final noProxyArgs = [...args, '--proxy', ''];
-        return _downloadViaYtDlpLegacy(
+        return await _downloadViaYtDlpLegacy(
           task: task,
           plan: plan,
           args: noProxyArgs,
@@ -844,7 +836,7 @@ class YouTubeDownloadEngine extends DownloadEngine {
     }
     _collectReportedPath((result.stdout ?? '').toString(), reportedPaths);
     _collectReportedPath((result.stderr ?? '').toString(), reportedPaths);
-    return _finalizeYtDlpDownload(
+    return await _finalizeYtDlpDownload(
       task: task,
       directory: plan.targetDirectory,
       plan: plan,

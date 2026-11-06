@@ -8,6 +8,7 @@ import '../download_queue_controller.dart'
     show DownloadTask, DownloadException, DownloadCanceledException;
 import '../download_settings.dart';
 import 'ios_download_operation.dart';
+import 'youtube_media_download.dart';
 import 'ios_media_bridge.dart';
 import 'ios_youtube_stream_plan.dart';
 
@@ -31,10 +32,12 @@ class IosYouTubeDownloadEngine extends DownloadEngine {
       isCanceled: isCancelRequested,
       onProgress: onProgressUpdated,
     );
-    final yt = YoutubeExplode(
-      httpClient: YoutubeHttpClient(BorrowedHttpClient(client)),
+    final transport = YoutubeHttpClient(BorrowedHttpClient(client));
+    final yt = YoutubeExplode(httpClient: transport);
+    final workspace = Directory(
+      '${directory.path}/.videodownloader_ios/${task.id}',
     );
-    final workspace = await directory.createTemp('.ios-youtube-');
+    await workspace.create(recursive: true);
     File? output;
     try {
       task.statusDetail = 'YouTube：应用内解析视频…';
@@ -48,23 +51,26 @@ class IosYouTubeDownloadEngine extends DownloadEngine {
         'ios_youtube_download_engine.dart#download: '
         'video=${plan.video.tag} audio=${plan.audio?.tag} bytes=${plan.totalBytes}',
       );
-      final video = File('${workspace.path}/video.mp4');
       task.statusDetail = 'YouTube：下载视频…';
       onProgressUpdated();
-      await operation.save(
-        yt.videos.streamsClient.get(plan.video),
-        video,
-        expectedBytes: plan.video.size.totalBytes,
+      final video = await YoutubeMediaDownload.save(
+        transport: transport,
+        youtube: yt,
+        info: plan.video,
+        workspace: workspace,
+        operation: operation,
       );
       final audioInfo = plan.audio;
       if (audioInfo != null) {
-        final audio = File('${workspace.path}/audio.m4a');
         task.statusDetail = 'YouTube：下载音频…';
         onProgressUpdated();
-        await operation.save(
-          yt.videos.streamsClient.get(audioInfo),
-          audio,
-          expectedBytes: audioInfo.size.totalBytes,
+        final audio = await YoutubeMediaDownload.save(
+          transport: transport,
+          youtube: yt,
+          info: audioInfo,
+          workspace: workspace,
+          operation: operation,
+          completedBytes: plan.video.size.totalBytes,
         );
         operation.checkCanceled();
         task.statusDetail = 'YouTube：在 iPhone 上合并音视频…';
@@ -91,7 +97,9 @@ class IosYouTubeDownloadEngine extends DownloadEngine {
       throw DownloadException('YouTube 应用内下载失败：$error');
     } finally {
       yt.close();
-      await workspace.delete(recursive: true);
+      if (task.filePath != null || isCancelRequested()) {
+        await workspace.delete(recursive: true);
+      }
     }
   }
 

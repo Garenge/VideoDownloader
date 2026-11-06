@@ -3,15 +3,20 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'download_history_store.dart';
+import 'download_queue_store.dart';
+import 'download_queue_persistence.dart';
+import 'resumable_file_transfer.dart';
 import 'download_settings.dart';
 import 'download_engines/x_download_engine.dart';
 import 'download_engines/youtube_download_engine.dart';
 import 'path_log_label.dart';
 import 'reveal_in_finder_macos.dart';
 import 'source_resource.dart';
+import 'ios/ios_background_keep_alive.dart';
 import 'ios/ios_media_bridge.dart';
 import 'ios/ios_youtube_download_engine.dart';
 
@@ -50,6 +55,7 @@ class DownloadTask {
   int receivedBytes = 0;
   int? totalBytes;
   String? filePath;
+  String? directoryPath;
   String? errorMessage;
 
   /// 当前步骤说明（仅下载进行中时使用，结束后清空）。
@@ -125,11 +131,6 @@ class DownloadTask {
   }
 }
 
-final class _PollOutcome<T> {
-  const _PollOutcome(this.value);
-  final T value;
-}
-
 class DownloadQueueController extends ChangeNotifier {
   DownloadQueueController({
     http.Client? client,
@@ -137,6 +138,7 @@ class DownloadQueueController extends ChangeNotifier {
     DownloadDirectoryResolver? downloadDirectoryResolver,
     FolderOpener? folderOpener,
     DownloadHistoryStore? downloadHistoryStore,
+    DownloadQueueStore? downloadQueueStore,
     ProcessRunner? processRunner,
     ProcessStarter? processStarter,
     DownloadSettings? downloadSettings,
@@ -154,7 +156,33 @@ class DownloadQueueController extends ChangeNotifier {
        _downloadDirectoryResolver =
            downloadDirectoryResolver ?? _defaultDownloadDirectory,
        _useIoHttpClientForDirectDownloads = useIoHttpClientForDirectDownloads {
+    _persistence = DownloadQueuePersistence(
+      downloadQueueStore ?? DownloadQueueStore(),
+      _tasks,
+    );
+    _ready = _restoreQueue();
     unawaited(_loadDownloadHistory());
+  }
+
+  late final DownloadQueuePersistence _persistence;
+  late final Future<void> _ready;
+  bool _disposed = false;
+
+  Future<void> get ready => _ready;
+  Future<void> flushQueue() => _persistence.flush();
+
+  Future<void> _restoreQueue() async {
+    await _persistence.restore();
+    if (_disposed) return;
+    notifyListeners();
+    unawaited(_runNext());
+  }
+
+  @override
+  void notifyListeners() {
+    if (_disposed) return;
+    _persistence.changed();
+    super.notifyListeners();
   }
 
   http.Client _client;
@@ -169,6 +197,8 @@ class DownloadQueueController extends ChangeNotifier {
   final List<DownloadTask> _tasks = [];
   final List<DownloadHistoryRecord> _history = [];
   final Set<String> _cancelRequestedTaskIds = {};
+  final IosBackgroundKeepAlive _iosBackgroundKeepAlive =
+      IosBackgroundKeepAlive();
 
   Directory? _selectedDirectory;
   bool _isRunning = false;
@@ -197,6 +227,7 @@ class DownloadQueueController extends ChangeNotifier {
     if (!_tasks.contains(task)) return;
     cancel(task);
     _tasks.remove(task);
+    _syncIosBackgroundKeepAlive();
     notifyListeners();
   }
 
@@ -206,6 +237,7 @@ class DownloadQueueController extends ChangeNotifier {
           task.status != DownloadStatus.pending &&
           task.status != DownloadStatus.downloading,
     );
+    _syncIosBackgroundKeepAlive();
     notifyListeners();
   }
 
@@ -233,6 +265,11 @@ class DownloadQueueController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
+    _persistence.dispose();
+    if (Platform.isIOS) {
+      unawaited(_iosBackgroundKeepAlive.stop());
+    }
     _stopDownloadElapsedTicker();
     try {
       _activeDownloadHttpClient?.close(force: true);
@@ -261,7 +298,7 @@ class DownloadQueueController extends ChangeNotifier {
       id: DateTime.now().microsecondsSinceEpoch.toString(),
       resource: resource,
       fileName: _fileNameFor(resource),
-    );
+    )..directoryPath = _selectedDirectory?.path;
 
     _tasks.insert(0, task);
     notifyListeners();
@@ -282,6 +319,7 @@ class DownloadQueueController extends ChangeNotifier {
   void cancel(DownloadTask task) {
     if (task.status == DownloadStatus.pending) {
       task.status = DownloadStatus.canceled;
+      _syncIosBackgroundKeepAlive();
       notifyListeners();
       return;
     }
@@ -305,14 +343,11 @@ class DownloadQueueController extends ChangeNotifier {
     }
 
     task.status = DownloadStatus.pending;
-    task.progress = 0;
-    task.receivedBytes = 0;
-    task.totalBytes = null;
-    task.filePath = null;
+
     task.errorMessage = null;
     task.statusDetail = null;
     task.activeStartedAt = null;
-    task.fileName = _fileNameFor(task.resource);
+
     task.clearLogs();
     task.addLog(
       'lib/source_parser/download_queue_controller.dart#retry: 用户触发重试',
@@ -416,6 +451,8 @@ class DownloadQueueController extends ChangeNotifier {
   }
 
   Future<void> _runNext() async {
+    await _ready;
+    if (_disposed) return;
     if (_isRunning) {
       return;
     }
@@ -428,6 +465,13 @@ class DownloadQueueController extends ChangeNotifier {
     }
 
     _isRunning = true;
+    await _persistence.flush();
+    if (_disposed) return;
+    if (task.status != DownloadStatus.pending) {
+      _isRunning = false;
+      unawaited(_runNext());
+      return;
+    }
     await _download(task);
     _isRunning = false;
     unawaited(_runNext());
@@ -437,6 +481,7 @@ class DownloadQueueController extends ChangeNotifier {
     File? outputFile;
     _activeTask = task;
     try {
+      _startIosBackgroundKeepAlive();
       task.clearLogs();
       task.addLog(
         'lib/source_parser/download_queue_controller.dart#_download: start url=${task.resource.url}',
@@ -448,8 +493,11 @@ class DownloadQueueController extends ChangeNotifier {
       _startDownloadElapsedTicker();
       notifyListeners();
 
-      final directory =
-          _selectedDirectory ?? await _downloadDirectoryResolver();
+      final directory = task.directoryPath != null
+          ? Directory(task.directoryPath!)
+          : _selectedDirectory ?? await _downloadDirectoryResolver();
+      task.directoryPath = directory.path;
+      await _persistence.flush();
       task.addLog(
         'lib/source_parser/download_queue_controller.dart#_download: directory=${pathLogLabel(directory.path)}',
       );
@@ -489,6 +537,7 @@ class DownloadQueueController extends ChangeNotifier {
       await _recordCompletedDownload(task);
       notifyListeners();
     } on DownloadCanceledException {
+      if (_disposed) return;
       _cancelRequestedTaskIds.remove(task.id);
       task.status = DownloadStatus.canceled;
       task.errorMessage = null;
@@ -500,6 +549,7 @@ class DownloadQueueController extends ChangeNotifier {
       await outputFile?.deleteIfExists();
       notifyListeners();
     } on Object catch (error) {
+      if (_disposed) return;
       task.status = DownloadStatus.failed;
       task.errorMessage = _friendlyDownloadError(error);
       task.statusDetail = null;
@@ -513,6 +563,32 @@ class DownloadQueueController extends ChangeNotifier {
       _activeTask = null;
       _cancelRequestedTaskIds.remove(task.id);
       _stopDownloadElapsedTicker();
+      _syncIosBackgroundKeepAlive();
+    }
+  }
+
+  void _startIosBackgroundKeepAlive() {
+    if (!Platform.isIOS) {
+      return;
+    }
+    unawaited(_iosBackgroundKeepAlive.start());
+  }
+
+  void _syncIosBackgroundKeepAlive() {
+    if (!Platform.isIOS) {
+      return;
+    }
+    final hasPendingOrActiveTask =
+        _tasks.any(
+          (task) =>
+              task.status == DownloadStatus.pending ||
+              task.status == DownloadStatus.downloading,
+        ) ||
+        _activeTask != null;
+    if (hasPendingOrActiveTask) {
+      _startIosBackgroundKeepAlive();
+    } else {
+      unawaited(_iosBackgroundKeepAlive.stop());
     }
   }
 
@@ -567,191 +643,58 @@ class DownloadQueueController extends ChangeNotifier {
     if (Platform.isIOS && task.resource.requiresFfmpegPostProcess) {
       throw const DownloadException('iOS 暂不支持 HLS / DASH 清单下载，请选择 MP4 直链资源');
     }
-    if (!_useIoHttpClientForDirectDownloads) {
-      return _downloadHttpWithPackageClient(task, directory);
-    }
-
-    File? outputFile;
-    final uri = Uri.parse(task.resource.url);
-    final ioClient = HttpClient();
+    final output = task.filePath == null
+        ? await _uniqueFile(directory, task.fileName)
+        : File(task.filePath!);
+    final partial = File('${output.path}.part');
+    if (await _alreadyDownloaded(task, output, partial)) return output;
+    task.filePath = output.path;
+    task.fileName = output.uri.pathSegments.last;
+    await _persistence.flush();
+    final ioClient = _useIoHttpClientForDirectDownloads
+        ? (HttpClient()..autoUncompress = false)
+        : null;
     _activeDownloadHttpClient = ioClient;
+    final client = ioClient == null ? _client : IOClient(ioClient);
     try {
-      task.statusDetail = '直连：连接服务器…';
-      notifyListeners();
-
-      outputFile = await _uniqueFile(directory, task.fileName);
-
-      final req = await _pollUntilCancelOr<HttpClientRequest>(
-        ioClient.getUrl(uri),
-        task,
-        onAbortRequestedConnection: () => ioClient.close(force: true),
-      );
-
-      req.headers.set(HttpHeaders.userAgentHeader, 'VideoDownloader/1.0');
-
-      final ioResponse = await _pollUntilCancelOr<HttpClientResponse>(
-        req.close(),
-        task,
-        onAbortRequestedConnection: req.abort,
-      );
-
-      if (ioResponse.statusCode < 200 || ioResponse.statusCode >= 400) {
-        throw DownloadException('HTTP ${ioResponse.statusCode}');
-      }
-      task.addLog(
-        'lib/source_parser/download_queue_controller.dart#_downloadHttp: http=${ioResponse.statusCode} contentLength=${ioResponse.contentLength}',
-      );
-
-      final contentLength = ioResponse.contentLength;
-      task.totalBytes = contentLength >= 0 ? contentLength : null;
-      task.statusDetail = task.totalBytes != null && task.totalBytes! > 0
-          ? '直连下载中（已知文件大小）…'
-          : '直连下载中（未提供总大小，进度为估算）…';
-      task.filePath = outputFile.path;
-
-      final sink = outputFile.openWrite();
-      try {
-        await for (final chunk in ioResponse) {
-          if (_cancelRequestedTaskIds.contains(task.id)) {
-            try {
-              ioClient.close(force: true);
-            } on Object {
-              // ignore
-            }
-            throw const DownloadCanceledException();
-          }
-
-          task.receivedBytes += chunk.length;
-          if (task.statusDetail != null && task.receivedBytes > 0) {
-            task.statusDetail = null;
-          }
-          final totalBytes = task.totalBytes;
-          if (totalBytes != null && totalBytes > 0) {
-            task.progress = task.receivedBytes / totalBytes;
-          }
-
-          sink.add(chunk);
-          notifyListeners();
-        }
-      } finally {
-        await sink.close();
-      }
-
-      return outputFile;
+      await ResumableFileTransfer(
+        client: client,
+        isCanceled: () =>
+            _disposed || _cancelRequestedTaskIds.contains(task.id),
+        onProgress: (received, total) =>
+            _updateHttpProgress(task, received, total),
+      ).download(Uri.parse(task.resource.url), partial);
+      if (_disposed) throw const DownloadCanceledException();
+      final result = await partial.rename(output.path);
+      await ResumableFileTransfer.deletePartial(partial);
+      return result;
     } on DownloadCanceledException {
-      await outputFile?.deleteIfExists();
+      if (!_disposed) await ResumableFileTransfer.deletePartial(partial);
       rethrow;
-    } on Object catch (error, stackTrace) {
-      await outputFile?.deleteIfExists();
-      if (_cancelRequestedTaskIds.contains(task.id)) {
-        throw const DownloadCanceledException();
-      }
-      Error.throwWithStackTrace(error, stackTrace);
     } finally {
-      if (identical(_activeDownloadHttpClient, ioClient)) {
-        _activeDownloadHttpClient = null;
-      }
-      try {
-        ioClient.close(force: false);
-      } on Object {
-        // ignore
-      }
+      if (ioClient != null) client.close();
+      _activeDownloadHttpClient = null;
     }
   }
 
-  /// 在 [package:http] 直连路径下轮询取消（无法中断底层 TCP，适合测试桩）。
-  Future<File> _downloadHttpWithPackageClient(
+  Future<bool> _alreadyDownloaded(
     DownloadTask task,
-    Directory directory,
+    File output,
+    File partial,
   ) async {
-    File? outputFile;
-    try {
-      task.statusDetail = '直连：连接服务器…';
-      notifyListeners();
-
-      outputFile = await _uniqueFile(directory, task.fileName);
-
-      final request = http.Request('GET', Uri.parse(task.resource.url));
-      final response = await _pollUntilCancelOr<http.StreamedResponse>(
-        _client.send(request).timeout(const Duration(seconds: 90)),
-        task,
-        onAbortRequestedConnection: () {},
-      );
-
-      if (response.statusCode < 200 || response.statusCode >= 400) {
-        throw DownloadException('HTTP ${response.statusCode}');
-      }
-      task.addLog(
-        'lib/source_parser/download_queue_controller.dart#_downloadHttpWithPackageClient: http=${response.statusCode} contentLength=${response.contentLength ?? -1}',
-      );
-
-      task.statusDetail =
-          response.contentLength != null && response.contentLength! > 0
-          ? '直连下载中（已知文件大小）…'
-          : '直连下载中（未提供总大小，进度为估算）…';
-      task.totalBytes = response.contentLength;
-      task.filePath = outputFile.path;
-
-      final sink = outputFile.openWrite();
-      try {
-        await for (final chunk in response.stream) {
-          if (_cancelRequestedTaskIds.contains(task.id)) {
-            throw const DownloadCanceledException();
-          }
-
-          task.receivedBytes += chunk.length;
-          if (task.statusDetail != null && task.receivedBytes > 0) {
-            task.statusDetail = null;
-          }
-          final totalBytes = task.totalBytes;
-          if (totalBytes != null && totalBytes > 0) {
-            task.progress = task.receivedBytes / totalBytes;
-          }
-
-          sink.add(chunk);
-          notifyListeners();
-        }
-      } finally {
-        await sink.close();
-      }
-
-      return outputFile;
-    } on DownloadCanceledException {
-      await outputFile?.deleteIfExists();
-      rethrow;
-    } on Object catch (error, stackTrace) {
-      await outputFile?.deleteIfExists();
-      if (_cancelRequestedTaskIds.contains(task.id)) {
-        throw const DownloadCanceledException();
-      }
-      Error.throwWithStackTrace(error, stackTrace);
-    }
+    if (await partial.exists() || !await output.exists()) return false;
+    final total = task.totalBytes;
+    return total != null && total > 0 && await output.length() == total;
   }
 
-  /// 约每 100ms 检查一次用户取消；若已请求取消则调用 [onAbortRequestedConnection] 并抛出 [DownloadCanceledException]。
-  Future<T> _pollUntilCancelOr<T>(
-    Future<T> operation,
-    DownloadTask task, {
-    required void Function() onAbortRequestedConnection,
-  }) async {
-    final outcome = operation.then((v) => _PollOutcome<T>(v));
-    while (true) {
-      final winner = await Future.any<Object?>([
-        outcome,
-        Future<Object?>.delayed(const Duration(milliseconds: 100)),
-      ]);
-      if (winner is _PollOutcome<T>) {
-        return winner.value;
-      }
-      if (_cancelRequestedTaskIds.contains(task.id)) {
-        try {
-          onAbortRequestedConnection();
-        } on Object {
-          // ignore
-        }
-        throw const DownloadCanceledException();
-      }
-    }
+  void _updateHttpProgress(DownloadTask task, int received, int? total) {
+    task.receivedBytes = received;
+    task.totalBytes = total;
+    task.progress = total != null && total > 0
+        ? (received / total).clamp(0, 1)
+        : 0;
+    task.statusDetail = received > 0 ? null : '直连：连接资源中…';
+    notifyListeners();
   }
 
   Future<File> _downloadYouTube(DownloadTask task, Directory directory) async {

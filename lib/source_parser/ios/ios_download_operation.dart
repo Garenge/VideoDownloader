@@ -43,9 +43,15 @@ class IosDownloadOperation {
     Stream<List<int>> stream,
     File file, {
     required int expectedBytes,
+    int offset = 0,
+    int completedBytes = 0,
   }) async {
     final iterator = StreamIterator(stream);
-    final sink = file.openWrite();
+    final sink = file.openWrite(
+      mode: offset > 0 ? FileMode.append : FileMode.write,
+    );
+    task.receivedBytes = completedBytes + offset;
+    onProgress();
     try {
       while (await wait(iterator.moveNext())) {
         checkCanceled();

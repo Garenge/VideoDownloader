@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:videodownloader/source_parser/download_history_store.dart';
+import 'package:videodownloader/source_parser/download_queue_store.dart';
 import 'package:videodownloader/source_parser/download_settings.dart';
 import 'package:videodownloader/source_parser/download_queue_controller.dart';
 import 'package:videodownloader/source_parser/source_resource.dart';
@@ -26,9 +27,13 @@ void main() {
               : http.Response('video', 200, request: request),
         ),
         downloadDirectoryResolver: () async => directory,
+        downloadQueueStore: _createQueueStore(directory),
         downloadHistoryStore: await _createHistoryStore(directory),
       );
-      addTearDown(controller.dispose);
+      addTearDown(() async {
+        controller.dispose();
+        await controller.flushQueue();
+      });
       final active = controller.enqueue(_resource);
       await _waitForStatus(active, DownloadStatus.downloading);
       final pending = controller.enqueue(_secondResource);
@@ -59,9 +64,13 @@ void main() {
           (request) async => http.Response('video', 200, request: request),
         ),
         downloadDirectoryResolver: () async => directory,
+        downloadQueueStore: _createQueueStore(directory),
         downloadHistoryStore: await _createHistoryStore(directory),
       );
-      addTearDown(controller.dispose);
+      addTearDown(() async {
+        controller.dispose();
+        await controller.flushQueue();
+      });
       final task = controller.enqueue(_resource);
       await _waitForStatus(task, DownloadStatus.completed);
       for (var i = 0; controller.history.isEmpty && i < 100; i++) {
@@ -89,9 +98,13 @@ void main() {
         return http.Response('video bytes', 200, request: request);
       }),
       downloadDirectoryResolver: () async => tempDirectory,
+      downloadQueueStore: _createQueueStore(tempDirectory),
       downloadHistoryStore: await _createHistoryStore(tempDirectory),
     );
-    addTearDown(controller.dispose);
+    addTearDown(() async {
+      controller.dispose();
+      await controller.flushQueue();
+    });
 
     final task = controller.enqueue(_resource);
     await _waitForStatus(task, DownloadStatus.completed, maxAttempts: 200);
@@ -117,9 +130,13 @@ void main() {
         return http.Response('download bytes', 200, request: request);
       }),
       downloadDirectoryResolver: () async => defaultDirectory,
+      downloadQueueStore: _createQueueStore(defaultDirectory),
       downloadHistoryStore: await _createHistoryStore(defaultDirectory),
     );
-    addTearDown(controller.dispose);
+    addTearDown(() async {
+      controller.dispose();
+      await controller.flushQueue();
+    });
 
     controller.setDownloadDirectory(selectedDirectory.path);
     final selectedTask = controller.enqueue(_resource);
@@ -148,12 +165,16 @@ void main() {
         return http.Response('open bytes', 200, request: request);
       }),
       downloadDirectoryResolver: () async => tempDirectory,
+      downloadQueueStore: _createQueueStore(tempDirectory),
       downloadHistoryStore: await _createHistoryStore(tempDirectory),
       folderOpener: (path) async {
         openedPath = path;
       },
     );
-    addTearDown(controller.dispose);
+    addTearDown(() async {
+      controller.dispose();
+      await controller.flushQueue();
+    });
 
     final task = controller.enqueue(_resource);
     await _waitForStatus(task, DownloadStatus.completed);
@@ -174,12 +195,16 @@ void main() {
 
     String? openedPath;
     final controller = DownloadQueueController(
+      downloadQueueStore: _createQueueStore(tempDirectory),
       downloadHistoryStore: await _createHistoryStore(tempDirectory),
       folderOpener: (path) async {
         openedPath = path;
       },
     );
-    addTearDown(controller.dispose);
+    addTearDown(() async {
+      controller.dispose();
+      await controller.flushQueue();
+    });
 
     await controller.openHistoryFolder(
       DownloadHistoryRecord(
@@ -208,9 +233,13 @@ void main() {
         return http.Response('retried video', 200, request: request);
       }),
       downloadDirectoryResolver: () async => directory,
+      downloadQueueStore: _createQueueStore(directory),
       downloadHistoryStore: await _createHistoryStore(directory),
     );
-    addTearDown(controller.dispose);
+    addTearDown(() async {
+      controller.dispose();
+      await controller.flushQueue();
+    });
     final active = controller.enqueue(_resource);
     await _waitForStatus(active, DownloadStatus.downloading);
     final pending = controller.enqueue(_secondResource);
@@ -246,9 +275,13 @@ void main() {
         return http.Response('retry ok', 200, request: request);
       }),
       downloadDirectoryResolver: () async => tempDirectory,
+      downloadQueueStore: _createQueueStore(tempDirectory),
       downloadHistoryStore: await _createHistoryStore(tempDirectory),
     );
-    addTearDown(controller.dispose);
+    addTearDown(() async {
+      controller.dispose();
+      await controller.flushQueue();
+    });
 
     final task = controller.enqueue(_resource);
     await _waitForStatus(task, DownloadStatus.failed);
@@ -274,9 +307,13 @@ void main() {
         return http.Response('', 200, request: request);
       }),
       downloadDirectoryResolver: () async => tempDirectory,
+      downloadQueueStore: _createQueueStore(tempDirectory),
       downloadHistoryStore: await _createHistoryStore(tempDirectory),
     );
-    addTearDown(controller.dispose);
+    addTearDown(() async {
+      controller.dispose();
+      await controller.flushQueue();
+    });
 
     final task = controller.enqueue(_resource);
     await _waitForStatus(task, DownloadStatus.failed);
@@ -306,9 +343,13 @@ void main() {
         return _startNoopProcess();
       },
       downloadDirectoryResolver: () async => tempDirectory,
+      downloadQueueStore: _createQueueStore(tempDirectory),
       downloadHistoryStore: await _createHistoryStore(tempDirectory),
     );
-    addTearDown(controller.dispose);
+    addTearDown(() async {
+      controller.dispose();
+      await controller.flushQueue();
+    });
 
     final task = controller.enqueue(_youtubeResource);
     await _waitForStatus(task, DownloadStatus.completed);
@@ -338,9 +379,13 @@ void main() {
         return _startNoopProcess();
       },
       downloadDirectoryResolver: () async => tempDirectory,
+      downloadQueueStore: _createQueueStore(tempDirectory),
       downloadHistoryStore: await _createHistoryStore(tempDirectory),
     );
-    addTearDown(controller.dispose);
+    addTearDown(() async {
+      controller.dispose();
+      await controller.flushQueue();
+    });
 
     final task = controller.enqueue(_youtubeResource);
     await _waitForStatus(task, DownloadStatus.failed);
@@ -374,6 +419,7 @@ void main() {
         return _startProgressProcess(output);
       },
       downloadDirectoryResolver: () async => tempDirectory,
+      downloadQueueStore: _createQueueStore(tempDirectory),
       downloadHistoryStore: await _createHistoryStore(tempDirectory),
     );
     controller.addListener(() {
@@ -386,7 +432,10 @@ void main() {
         }
       }
     });
-    addTearDown(controller.dispose);
+    addTearDown(() async {
+      controller.dispose();
+      await controller.flushQueue();
+    });
 
     final task = controller.enqueue(_youtubeResource);
     await _waitForStatus(task, DownloadStatus.completed);
@@ -420,9 +469,13 @@ void main() {
         ytDlpFragmentRetries: 50,
       ),
       downloadDirectoryResolver: () async => tempDirectory,
+      downloadQueueStore: _createQueueStore(tempDirectory),
       downloadHistoryStore: await _createHistoryStore(tempDirectory),
     );
-    addTearDown(controller.dispose);
+    addTearDown(() async {
+      controller.dispose();
+      await controller.flushQueue();
+    });
 
     final task = controller.enqueue(_youtubeResource);
     await _waitForStatus(task, DownloadStatus.failed, maxAttempts: 200);
@@ -450,9 +503,13 @@ void main() {
         ytDlpFragmentRetries: 50,
       ),
       downloadDirectoryResolver: () async => tempDirectory,
+      downloadQueueStore: _createQueueStore(tempDirectory),
       downloadHistoryStore: await _createHistoryStore(tempDirectory),
     );
-    addTearDown(controller.dispose);
+    addTearDown(() async {
+      controller.dispose();
+      await controller.flushQueue();
+    });
 
     final task = controller.enqueue(_youtubeResource);
     await _waitForStatus(task, DownloadStatus.failed, maxAttempts: 200);
@@ -475,9 +532,13 @@ void main() {
         return http.Response('history bytes', 200, request: request);
       }),
       downloadDirectoryResolver: () async => tempDirectory,
+      downloadQueueStore: _createQueueStore(tempDirectory),
       downloadHistoryStore: historyStore,
     );
-    addTearDown(controller.dispose);
+    addTearDown(() async {
+      controller.dispose();
+      await controller.flushQueue();
+    });
 
     final task = controller.enqueue(_resource);
     await _waitForStatus(task, DownloadStatus.completed);
@@ -512,9 +573,13 @@ void main() {
         return _startNoopProcess();
       },
       downloadDirectoryResolver: () async => tempDirectory,
+      downloadQueueStore: _createQueueStore(tempDirectory),
       downloadHistoryStore: await _createHistoryStore(tempDirectory),
     );
-    addTearDown(controller.dispose);
+    addTearDown(() async {
+      controller.dispose();
+      await controller.flushQueue();
+    });
 
     final task = controller.enqueue(_youtubeResource);
     await _waitForStatus(task, DownloadStatus.completed);
@@ -544,9 +609,13 @@ void main() {
         return _startNoopProcess();
       },
       downloadDirectoryResolver: () async => tempDirectory,
+      downloadQueueStore: _createQueueStore(tempDirectory),
       downloadHistoryStore: await _createHistoryStore(tempDirectory),
     );
-    addTearDown(controller.dispose);
+    addTearDown(() async {
+      controller.dispose();
+      await controller.flushQueue();
+    });
 
     final task = controller.enqueue(_youtubeResource);
     await _waitForStatus(task, DownloadStatus.completed);
@@ -574,9 +643,13 @@ void main() {
         return _startNoopProcess();
       },
       downloadDirectoryResolver: () async => tempDirectory,
+      downloadQueueStore: _createQueueStore(tempDirectory),
       downloadHistoryStore: await _createHistoryStore(tempDirectory),
     );
-    addTearDown(controller.dispose);
+    addTearDown(() async {
+      controller.dispose();
+      await controller.flushQueue();
+    });
 
     final task = controller.enqueue(_xResource);
     await _waitForStatus(task, DownloadStatus.completed);
@@ -613,9 +686,13 @@ void main() {
           );
         },
         downloadDirectoryResolver: () async => tempDirectory,
+        downloadQueueStore: _createQueueStore(tempDirectory),
         downloadHistoryStore: await _createHistoryStore(tempDirectory),
       );
-      addTearDown(controller.dispose);
+      addTearDown(() async {
+        controller.dispose();
+        await controller.flushQueue();
+      });
 
       final task = controller.enqueue(_xResource);
       await _waitForStatus(task, DownloadStatus.completed);
@@ -648,9 +725,13 @@ void main() {
         );
       },
       downloadDirectoryResolver: () async => tempDirectory,
+      downloadQueueStore: _createQueueStore(tempDirectory),
       downloadHistoryStore: await _createHistoryStore(tempDirectory),
     );
-    addTearDown(controller.dispose);
+    addTearDown(() async {
+      controller.dispose();
+      await controller.flushQueue();
+    });
 
     final task = controller.enqueue(_xResource);
     await _waitForStatus(task, DownloadStatus.failed);
@@ -780,3 +861,7 @@ class _SpyHttpClient extends http.BaseClient {
     closed = true;
   }
 }
+
+DownloadQueueStore _createQueueStore(Directory directory) => DownloadQueueStore(
+  fileResolver: () async => File('${directory.path}/queue.json'),
+);

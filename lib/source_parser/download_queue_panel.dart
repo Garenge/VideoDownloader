@@ -587,7 +587,8 @@ String _leadingMetaText(DownloadTask task) {
 
 String _trailingMetaText(DownloadTask task) {
   return switch (task.status) {
-    DownloadStatus.pending => '排队中',
+    DownloadStatus.pending =>
+      task.receivedBytes > 0 ? '${_compactProgressText(task)} · 排队中' : '排队中',
     DownloadStatus.completed => '100%',
     DownloadStatus.failed ||
     DownloadStatus.canceled => _compactProgressText(task),
@@ -607,7 +608,8 @@ String _detailMetaText(DownloadTask task) {
   }
 
   return switch (task.status) {
-    DownloadStatus.pending => '等待前序任务完成后自动开始',
+    DownloadStatus.pending =>
+      task.receivedBytes > 0 ? '已恢复下载进度，等待前序任务完成后续传' : '等待前序任务完成后自动开始',
     DownloadStatus.downloading => _compactStatusText(task),
     DownloadStatus.completed => '下载完成',
     DownloadStatus.failed => '下载失败，请查看日志后重试',
@@ -732,7 +734,7 @@ String _formatBytes(int bytes) {
 double? _progressIndicatorValue(DownloadTask task) {
   switch (task.status) {
     case DownloadStatus.pending:
-      return 0;
+      return task.progress.clamp(0.0, 1.0);
     case DownloadStatus.downloading:
       final total = task.totalBytes;
       if (total != null && total > 0) {

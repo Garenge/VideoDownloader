@@ -10,6 +10,7 @@ import UIKit
   private static var shareDeduplicator = IncomingShareDeduplicator()
   private let mediaBridge = IosMediaBridge()
   private let xLoginBridge = IosXLoginBridge()
+  private let backgroundKeepAlive = IosBackgroundKeepAlive()
 
   override func application(
     _ application: UIApplication,
@@ -33,6 +34,7 @@ import UIKit
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     mediaBridge.register(messenger: engineBridge.applicationRegistrar.messenger())
     xLoginBridge.register(messenger: engineBridge.applicationRegistrar.messenger())
+    backgroundKeepAlive.register(messenger: engineBridge.applicationRegistrar.messenger())
     let channel = FlutterMethodChannel(
       name: Self.incomingLinkChannelName,
       binaryMessenger: engineBridge.applicationRegistrar.messenger()

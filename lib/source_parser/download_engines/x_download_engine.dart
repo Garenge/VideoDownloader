@@ -131,7 +131,7 @@ class XDownloadEngine extends DownloadEngine {
       await _deleteDirectoryIfExists(plan.workspaceDirectory);
       rethrow;
     } on Object {
-      await _deleteDirectoryIfExists(plan.workspaceDirectory);
+      // Preserve fragments and yt-dlp metadata for the next attempt.
       rethrow;
     }
   }
@@ -147,6 +147,7 @@ class XDownloadEngine extends DownloadEngine {
     final ffmpegLocation = _existingExecutablePath('ffmpeg');
 
     return <String>[
+      '--continue',
       '--no-playlist',
       '--newline',
       '--progress',
@@ -392,7 +393,6 @@ class XDownloadEngine extends DownloadEngine {
     final workspaceDirectory = Directory(
       '${directory.path}/.videodownloader_x/${task.id}',
     );
-    await _deleteDirectoryIfExists(workspaceDirectory);
     await workspaceDirectory.create(recursive: true);
     final suggestedBaseName = _suggestBaseName(task);
     task.fileName = '$suggestedBaseName.mp4';
