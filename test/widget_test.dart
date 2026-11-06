@@ -7,7 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:videodownloader/main.dart';
-import 'package:videodownloader/source_parser/download_activity_overlay.dart';
+import 'package:videodownloader/source_parser/download_tasks_page.dart';
 import 'package:videodownloader/source_parser/download_history_store.dart';
 import 'package:videodownloader/source_parser/incoming_link_bridge.dart';
 import 'package:videodownloader/source_parser/ios/x_public_video_resolver.dart';
@@ -15,6 +15,7 @@ import 'package:videodownloader/source_parser/parse_history_store.dart';
 import 'package:videodownloader/source_parser/source_parser_home_page.dart';
 import 'package:videodownloader/source_parser/source_resource.dart';
 import 'package:videodownloader/source_parser/source_parser_service.dart';
+import 'helpers/workspace_fixture.dart';
 
 void main() {
   testWidgets('unexpected parse timeout displays an error and enables retry', (
@@ -173,7 +174,10 @@ void main() {
     expect(find.text('当前还没有最近解析记录'), findsOneWidget);
     await tester.tap(find.text('关闭'));
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('open-recent-urls-button')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('open-recent-urls-button')),
+      findsOneWidget,
+    );
     expect(await historyStore.load(), isEmpty);
   });
 
@@ -224,12 +228,7 @@ void main() {
 
     await tester.tap(find.text('继续下载'));
     await tester.pump(const Duration(milliseconds: 100));
-    expect(
-      tester
-          .widget<DownloadActivityOverlay>(find.byType(DownloadActivityOverlay))
-          .panelOpen,
-      isFalse,
-    );
+    expect(find.byType(DownloadTasksPage), findsNothing);
   });
 
   testWidgets('shows X photos in the image category without a video task', (
@@ -380,6 +379,7 @@ void main() {
         parseHistoryStore: _MemoryParseHistoryStore(),
         downloadHistoryStore: _MemoryDownloadHistoryStore(),
         incomingLinkListenable: incomingLinkListenable,
+        downloadSettingsStore: MemorySettingsStore(),
       ),
     );
 
@@ -391,7 +391,7 @@ void main() {
       debugLog: '[Incoming Link Native Log]\norigin=share_extension',
     );
 
-    await _pumpUntilFound(tester, find.text('YouTube'));
+    await _pumpUntilFound(tester, _resourceSearchField);
 
     final urlField = tester.widget<TextField>(
       find.widgetWithText(TextField, '目标 URL'),

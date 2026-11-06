@@ -6,7 +6,13 @@ import 'downloaded_file_tile.dart';
 import 'player/local_video_page.dart';
 
 class DownloadedFilesPage extends StatefulWidget {
-  const DownloadedFilesPage({super.key, required this.queue, this.store});
+  const DownloadedFilesPage({
+    super.key,
+    required this.queue,
+    this.store,
+    this.embedded = false,
+  });
+  final bool embedded;
   final DownloadQueueController queue;
   final DownloadedFileStore? store;
   @override
@@ -14,7 +20,7 @@ class DownloadedFilesPage extends StatefulWidget {
 }
 
 class _DownloadedFilesPageState extends State<DownloadedFilesPage>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, AutomaticKeepAliveClientMixin {
   late final DownloadedFileStore _store;
   List<DownloadedFile> _files = [];
   String _query = '';
@@ -23,6 +29,9 @@ class _DownloadedFilesPageState extends State<DownloadedFilesPage>
   bool _newestFirst = true;
   int _generation = 0;
   String _snapshot = '';
+
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -114,39 +123,44 @@ class _DownloadedFilesPageState extends State<DownloadedFilesPage>
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: Text('文件 · ${_files.length}'),
-      actions: [
-        IconButton(
-          tooltip: _newestFirst ? '改为最早优先' : '改为最新优先',
-          onPressed: () => setState(() => _newestFirst = !_newestFirst),
-          icon: const Icon(Icons.sort),
-        ),
-        IconButton(
-          tooltip: '刷新文件',
-          onPressed: _refresh,
-          icon: const Icon(Icons.refresh),
-        ),
-      ],
-    ),
-    body: Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: TextField(
-            decoration: const InputDecoration(
-              prefixIcon: Icon(Icons.search),
-              hintText: '搜索已下载文件',
-              border: OutlineInputBorder(),
-            ),
-            onChanged: (value) => setState(() => _query = value.toLowerCase()),
+  Widget build(BuildContext context) {
+    super.build(context);
+    return Scaffold(
+      appBar: AppBar(
+        automaticallyImplyLeading: !widget.embedded,
+        title: Text('文件 · ${_files.length}'),
+        actions: [
+          IconButton(
+            tooltip: _newestFirst ? '改为最早优先' : '改为最新优先',
+            onPressed: () => setState(() => _newestFirst = !_newestFirst),
+            icon: const Icon(Icons.sort),
           ),
-        ),
-        Expanded(child: _body()),
-      ],
-    ),
-  );
+          IconButton(
+            tooltip: '刷新文件',
+            onPressed: _refresh,
+            icon: const Icon(Icons.refresh),
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: TextField(
+              decoration: const InputDecoration(
+                prefixIcon: Icon(Icons.search),
+                hintText: '搜索已下载文件',
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (value) =>
+                  setState(() => _query = value.toLowerCase()),
+            ),
+          ),
+          Expanded(child: _body()),
+        ],
+      ),
+    );
+  }
 
   Widget _body() {
     if (_loading) return const Center(child: CircularProgressIndicator());

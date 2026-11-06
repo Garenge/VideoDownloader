@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:videodownloader/source_parser/download_history_store.dart';
-import 'package:videodownloader/source_parser/download_activity_overlay.dart';
+import 'package:videodownloader/source_parser/download_tasks_page.dart';
+import 'package:videodownloader/source_parser/download_queue_controller.dart';
+import 'package:videodownloader/source_parser/source_resource.dart';
 import 'package:videodownloader/source_parser/download_queue_panel.dart';
 import 'package:videodownloader/source_parser/ios/ios_download_info.dart';
 import 'package:videodownloader/source_parser/parser_action_bar.dart';
@@ -23,6 +25,7 @@ void main() {
                   isParsing: false,
                   onOpenBrowser: () {},
                   onParse: () {},
+                  onRecent: () {},
                 ),
               ),
             ),
@@ -36,38 +39,36 @@ void main() {
     expect(find.byTooltip('在浏览器打开'), findsOneWidget);
   });
 
-  testWidgets(
-    'iOS history exports files and hides unsupported conversion',
-    (tester) async {
-      var exported = false;
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: DownloadHistoryPanel(
-              records: [
-                DownloadHistoryRecord(
-                  fileName: 'video.m3u8',
-                  filePath: '/Documents/video.m3u8',
-                  sourceUrl: 'https://example.com',
-                  completedAt: DateTime(2026),
-                ),
-              ],
-              onOpenFolder: (_) {
-                exported = true;
-              },
-              onConvertToMp4: (_) => fail('No desktop conversion on iOS'),
-              onClear: () {},
-              canConvertToMp4: false,
-            ),
+  testWidgets('iOS history exports files and hides unsupported conversion', (
+    tester,
+  ) async {
+    var exported = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: DownloadHistoryPanel(
+            records: [
+              DownloadHistoryRecord(
+                fileName: 'video.m3u8',
+                filePath: '/Documents/video.m3u8',
+                sourceUrl: 'https://example.com',
+                completedAt: DateTime(2026),
+              ),
+            ],
+            onOpenFolder: (_) {
+              exported = true;
+            },
+            onConvertToMp4: (_) => fail('No desktop conversion on iOS'),
+            onClear: () {},
+            canConvertToMp4: false,
           ),
         ),
-      );
-      expect(find.byTooltip('转 MP4'), findsNothing);
-      await tester.tap(find.byTooltip('分享或存储文件'));
-      expect(exported, isTrue);
-    },
-    variant: TargetPlatformVariant({TargetPlatform.iOS}),
-  );
+      ),
+    );
+    expect(find.byTooltip('转 MP4'), findsNothing);
+    await tester.tap(find.byTooltip('分享或存储文件'));
+    expect(exported, isTrue);
+  }, variant: TargetPlatformVariant({TargetPlatform.iOS}));
 
   testWidgets('iOS settings explain foreground and format limits', (
     tester,
@@ -89,21 +90,17 @@ void main() {
     expect(find.textContaining('本机合并'), findsOneWidget);
   });
 
-  testWidgets('mobile activity panel has working queue and history tabs', (
+  testWidgets('mobile task page has working queue and history tabs', (
     tester,
   ) async {
+    final activity = ValueNotifier(0);
+    addTearDown(activity.dispose);
     await tester.pumpWidget(
       MaterialApp(
-        home: Scaffold(
-          body: DownloadActivityOverlay(
-            panelOpen: true,
-            onTogglePanel: () {},
-            onClosePanel: () {},
-            activeTaskCount: 0,
-            queuePanel: const Text('queue content'),
-            conversionPanel: null,
-            historyPanel: const Text('history content'),
-          ),
+        home: DownloadTasksPage(
+          activity: activity,
+          queueBuilder: (_) => const Text('queue content'),
+          historyBuilder: (_) => const Text('history content'),
         ),
       ),
     );
@@ -111,6 +108,41 @@ void main() {
     await tester.tap(find.text('历史'));
     await tester.pumpAndSettle();
     expect(find.text('history content'), findsOneWidget);
+    activity.value++;
+    await tester.pump();
+    expect(find.text('history content'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('canceled task exposes a retry action', (tester) async {
+    final task = DownloadTask(
+      id: 'canceled',
+      fileName: 'video.mp4',
+      resource: const SourceResource(
+        title: 'Video',
+        url: 'https://example.com/video.mp4',
+        type: SourceResourceType.video,
+        platform: SourcePlatform.other,
+        host: 'example.com',
+        sizeHint: '',
+      ),
+    )..status = DownloadStatus.canceled;
+    var retried = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: DownloadQueuePanel(
+            tasks: [task],
+            onCancel: (_) {},
+            onRetry: (_) => retried = true,
+            onOpenFolder: (_) {},
+            onCopyLogs: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byTooltip('重试'));
+    expect(retried, isTrue);
+    expect(find.byTooltip('取消'), findsNothing);
   });
 }

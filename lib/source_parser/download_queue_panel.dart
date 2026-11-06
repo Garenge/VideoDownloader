@@ -401,7 +401,9 @@ class _DownloadTaskTile extends StatelessWidget {
     final canCancel =
         task.status == DownloadStatus.pending ||
         task.status == DownloadStatus.downloading;
-    final canRetry = task.status == DownloadStatus.failed;
+    final canRetry =
+        task.status == DownloadStatus.failed ||
+        task.status == DownloadStatus.canceled;
     final canCopyLogs = task.logs.isNotEmpty;
     final canOpenFolder =
         task.status == DownloadStatus.completed && task.filePath != null;

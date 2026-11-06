@@ -110,7 +110,7 @@ class _DownloadSettingsDialogState extends State<_DownloadSettingsDialog> {
       // 允许保存，让用户先开关，后续安装后生效
     }
 
-    final settings = DownloadSettings(
+    final settings = widget.initialSettings.copyWith(
       enableYtDlpFallback: _enableYtDlpFallback,
       preferYtDlpForYouTube: _enableYtDlpFallback
           ? _preferYtDlpForYouTube

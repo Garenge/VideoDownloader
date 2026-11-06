@@ -193,6 +193,42 @@ void main() {
     expect(openedPath, file.path);
   });
 
+  test('active and pending canceled tasks can both be retried', () async {
+    final directory = await Directory.systemTemp.createTemp('retry_canceled_');
+    addTearDown(() => directory.delete(recursive: true));
+    final blocked = Completer<http.Response>();
+    var firstRequest = true;
+    final controller = DownloadQueueController(
+      useIoHttpClientForDirectDownloads: false,
+      client: MockClient((request) async {
+        if (firstRequest) {
+          firstRequest = false;
+          return blocked.future;
+        }
+        return http.Response('retried video', 200, request: request);
+      }),
+      downloadDirectoryResolver: () async => directory,
+      downloadHistoryStore: await _createHistoryStore(directory),
+    );
+    addTearDown(controller.dispose);
+    final active = controller.enqueue(_resource);
+    await _waitForStatus(active, DownloadStatus.downloading);
+    final pending = controller.enqueue(_secondResource);
+    controller.cancel(pending);
+    controller.cancel(active);
+    blocked.complete(http.Response('cancel response', 200));
+    await _waitForStatus(active, DownloadStatus.canceled);
+    expect(pending.status, DownloadStatus.canceled);
+    controller.retry(active);
+    controller.retry(pending);
+    await _waitForStatus(active, DownloadStatus.completed);
+    await _waitForStatus(pending, DownloadStatus.completed);
+    expect(controller.tasks, hasLength(2));
+    expect(controller.history, hasLength(2));
+    expect(await File(active.filePath!).readAsString(), 'retried video');
+    expect(await File(pending.filePath!).readAsString(), 'retried video');
+  });
+
   test('retry reruns a failed task', () async {
     final tempDirectory = await Directory.systemTemp.createTemp(
       'videodownloader_retry_',

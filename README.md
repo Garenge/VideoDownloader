@@ -14,8 +14,13 @@ described below differs from the iOS feature set.
 ## Current Status
 
 - macOS app can be built and launched.
-- Home page has been changed from the default counter demo to a resource parser
-  workspace.
+- The main workspace has Download and Files tabs. Queue, history, and conversion
+  tasks live on a separate task page; settings have a dedicated page.
+- Opening the app or returning from the background shows the Download tab,
+  keeping task lists out of the way when adding new links.
+- Settings include an opt-in share auto-download switch (off by default): shared
+  links are parsed and downloadable resources are queued automatically. Direct
+  URL opens and manual parsing continue to parse only.
 - URL source classification is available for Douyin, X, YouTube, Bilibili, and
   Other.
 - Common web page fetching and HTML resource extraction are connected.
@@ -25,7 +30,7 @@ described below differs from the iOS feature set.
   documents directory.
 - Completed download tasks can open their containing folder from the queue.
 - Download history entries can trigger `m3u8 -> mp4` conversion, with a
-  dedicated conversion task queue in the activity panel.
+  dedicated conversion task queue on the task page.
 - Parsed resources support thumbnail preview, search, host filtering, and file
   extension filtering.
 - Recently parsed URLs are stored locally and can be reused or cleared.
@@ -39,7 +44,7 @@ described below differs from the iOS feature set.
   Photos use original image URLs and videos use the highest bitrate MP4;
   when the public interface is unavailable, the desktop parser keeps its
   `yt-dlp` video task fallback.
-- Failed tasks can be retried directly from the queue panel.
+- Failed and canceled tasks can be retried directly from the queue page.
 - Queue tasks and individual history entries can be removed without deleting
   completed files. Removing an active task cancels its download.
 - The file library reads actual download directories independently of history,

@@ -297,9 +297,10 @@ class DownloadQueueController extends ChangeNotifier {
     }
   }
 
-  /// 将失败任务重新加入待下载队列（保留同一 [DownloadTask] 与 [id]）。
+  /// 将失败或已取消任务重新加入待下载队列（保留同一 [DownloadTask] 与 [id]）。
   void retry(DownloadTask task) {
-    if (task.status != DownloadStatus.failed) {
+    if (task.status != DownloadStatus.failed &&
+        task.status != DownloadStatus.canceled) {
       return;
     }
 

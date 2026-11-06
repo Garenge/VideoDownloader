@@ -7,12 +7,14 @@ class ParserActionBar extends StatelessWidget {
     required this.isParsing,
     required this.onOpenBrowser,
     required this.onParse,
+    required this.onRecent,
   });
 
   final Widget hints;
   final bool isParsing;
   final VoidCallback onOpenBrowser;
   final VoidCallback onParse;
+  final VoidCallback onRecent;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
@@ -35,6 +37,20 @@ class ParserActionBar extends StatelessWidget {
               onPressed: onOpenBrowser,
               icon: const Icon(Icons.open_in_browser),
               label: const Text('在浏览器打开'),
+            ),
+          if (compact)
+            IconButton(
+              key: const ValueKey('open-recent-urls-button'),
+              tooltip: '最近解析',
+              onPressed: onRecent,
+              icon: const Icon(Icons.history),
+            )
+          else
+            OutlinedButton.icon(
+              key: const ValueKey('open-recent-urls-button'),
+              onPressed: onRecent,
+              icon: const Icon(Icons.history),
+              label: const Text('最近'),
             ),
           FilledButton.icon(
             onPressed: isParsing ? null : onParse,

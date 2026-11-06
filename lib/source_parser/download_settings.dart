@@ -1,5 +1,6 @@
 class DownloadSettings {
   const DownloadSettings({
+    this.shareAutoDownload = false,
     required this.enableYtDlpFallback,
     required this.preferYtDlpForYouTube,
     required this.ytDlpConcurrency,
@@ -8,12 +9,14 @@ class DownloadSettings {
   });
 
   const DownloadSettings.defaults()
-    : enableYtDlpFallback = true,
+    : shareAutoDownload = false,
+      enableYtDlpFallback = true,
       preferYtDlpForYouTube = true,
       ytDlpConcurrency = 8,
       ytDlpRetries = 10,
       ytDlpFragmentRetries = 50;
 
+  final bool shareAutoDownload;
   final bool enableYtDlpFallback;
   final bool preferYtDlpForYouTube;
   final int ytDlpConcurrency;
@@ -21,6 +24,7 @@ class DownloadSettings {
   final int ytDlpFragmentRetries;
 
   DownloadSettings copyWith({
+    bool? shareAutoDownload,
     bool? enableYtDlpFallback,
     bool? preferYtDlpForYouTube,
     int? ytDlpConcurrency,
@@ -34,6 +38,7 @@ class DownloadSettings {
         : false;
 
     return DownloadSettings(
+      shareAutoDownload: shareAutoDownload ?? this.shareAutoDownload,
       enableYtDlpFallback: nextEnableYtDlpFallback,
       preferYtDlpForYouTube: nextPreferYtDlpForYouTube,
       ytDlpConcurrency: ytDlpConcurrency ?? this.ytDlpConcurrency,
@@ -45,6 +50,7 @@ class DownloadSettings {
   static DownloadSettings fromJson(Map<String, Object?> json) {
     final defaults = const DownloadSettings.defaults();
     return DownloadSettings(
+      shareAutoDownload: json['shareAutoDownload'] == true,
       enableYtDlpFallback: json['enableYtDlpFallback'] is bool
           ? json['enableYtDlpFallback'] as bool
           : defaults.enableYtDlpFallback,
@@ -66,6 +72,7 @@ class DownloadSettings {
 
   Map<String, Object?> toJson() {
     return {
+      'shareAutoDownload': shareAutoDownload,
       'enableYtDlpFallback': enableYtDlpFallback,
       'preferYtDlpForYouTube': preferYtDlpForYouTube,
       'ytDlpConcurrency': ytDlpConcurrency,

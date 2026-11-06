@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'source_parser/download_history_store.dart';
+import 'source_parser/download_settings_store.dart';
 import 'source_parser/incoming_link_bridge.dart';
 import 'source_parser/parse_history_store.dart';
 import 'source_parser/proxy_settings_store.dart';
@@ -20,6 +21,7 @@ class VideoDownloaderApp extends StatefulWidget {
     this.parserService,
     this.parseHistoryStore,
     this.downloadHistoryStore,
+    this.downloadSettingsStore,
     this.proxySettingsStore,
     this.xVideoPreflightProbe,
     this.incomingLinkListenable,
@@ -28,6 +30,7 @@ class VideoDownloaderApp extends StatefulWidget {
   final SourceParserService? parserService;
   final ParseHistoryStore? parseHistoryStore;
   final DownloadHistoryStore? downloadHistoryStore;
+  final DownloadSettingsStore? downloadSettingsStore;
   final ProxySettingsStore? proxySettingsStore;
   final XVideoPreflightProbe? xVideoPreflightProbe;
   final ValueListenable<IncomingLinkEvent?>? incomingLinkListenable;
@@ -80,6 +83,7 @@ class _VideoDownloaderAppState extends State<VideoDownloaderApp> {
         parserService: widget.parserService,
         parseHistoryStore: widget.parseHistoryStore,
         downloadHistoryStore: widget.downloadHistoryStore,
+        downloadSettingsStore: widget.downloadSettingsStore,
         proxySettingsStore: widget.proxySettingsStore,
         xVideoPreflightProbe: widget.xVideoPreflightProbe,
         incomingLinkListenable: _resolvedIncomingLinkListenable,

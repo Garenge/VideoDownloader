@@ -8,7 +8,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import 'download_activity_overlay.dart';
+import 'app_settings_page.dart';
+import 'download_tasks_page.dart';
 import 'download_history_store.dart';
 import 'incoming_link_bridge.dart';
 import 'download_settings.dart';
@@ -59,14 +60,6 @@ class _IncomingBannerState {
         return '来自外部唤起';
     }
   }
-}
-
-enum _HeaderMenuAction {
-  xLogin,
-  xLogout,
-  downloadSettings,
-  selectDownloadDirectory,
-  resetDownloadDirectory,
 }
 
 typedef ExternalBrowserOpener = Future<void> Function(String url);
@@ -170,6 +163,7 @@ class SourceParserHomePage extends StatefulWidget {
     this.parserService,
     this.parseHistoryStore,
     this.downloadHistoryStore,
+    this.downloadSettingsStore,
     this.proxySettingsStore,
     this.externalBrowserOpener,
     this.xVideoPreflightProbe,
@@ -179,6 +173,7 @@ class SourceParserHomePage extends StatefulWidget {
   final SourceParserService? parserService;
   final ParseHistoryStore? parseHistoryStore;
   final DownloadHistoryStore? downloadHistoryStore;
+  final DownloadSettingsStore? downloadSettingsStore;
   final ProxySettingsStore? proxySettingsStore;
   final ExternalBrowserOpener? externalBrowserOpener;
   final XVideoPreflightProbe? xVideoPreflightProbe;
@@ -189,7 +184,7 @@ class SourceParserHomePage extends StatefulWidget {
 }
 
 class _SourceParserHomePageState extends State<SourceParserHomePage>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   final _urlController = TextEditingController();
   final _resourceSearchController = TextEditingController();
   late final TabController _resourceTypeTabController;
@@ -223,8 +218,9 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
   bool _isParsing = false;
   DateTime? _parseStartedAt;
   Timer? _parseElapsedTicker;
-  bool _downloadPanelOpen = false;
-  String? _pendingIncomingUrl;
+  late final TabController _mainTabController;
+  bool _wasBackgrounded = false;
+  final List<IncomingLinkEvent> _pendingIncomingEvents = [];
   int _lastHandledIncomingLinkSequence = 0;
   ValueListenable<IncomingLinkEvent?>? _attachedIncomingLinkListenable;
   _IncomingBannerState? _incomingBannerState;
@@ -235,12 +231,15 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _mainTabController = TabController(length: 2, vsync: this);
     _resourceTypeTabController = TabController(length: 4, vsync: this);
     _parseHistoryStore = widget.parseHistoryStore ?? ParseHistoryStore();
     _downloadHistoryStore =
         widget.downloadHistoryStore ?? DownloadHistoryStore();
     _resourceSearchController.addListener(_handleResourceSearchChanged);
-    _downloadSettingsStore = DownloadSettingsStore();
+    _downloadSettingsStore =
+        widget.downloadSettingsStore ?? DownloadSettingsStore();
     unawaited(_refreshXAccountStatus());
     unawaited(_loadDownloadSettings());
     unawaited(_refreshDownloadToolStatus());
@@ -318,6 +317,7 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
     });
     await _downloadQueueController?.updateDownloadSettings(settings);
     _maybeShowStartupToolWarning();
+    await _consumePendingIncomingUrlIfNeeded();
   }
 
   Future<void> _refreshDownloadToolStatus() async {
@@ -581,21 +581,37 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
       context: context,
       initialSettings: _downloadSettings,
       toolStatus: _downloadToolStatus,
-      onApply: (settings) async {
-        await _downloadSettingsStore.save(settings);
-        await _downloadQueueController?.updateDownloadSettings(settings);
-        if (!mounted) {
-          return;
-        }
-        setState(() {
-          _downloadSettings = settings;
-        });
-      },
+      onApply: _saveDownloadSettings,
     );
+  }
+
+  Future<void> _saveDownloadSettings(DownloadSettings settings) async {
+    await _downloadSettingsStore.save(settings);
+    await _downloadQueueController?.updateDownloadSettings(settings);
+    if (mounted) setState(() => _downloadSettings = settings);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _wasBackgrounded = true;
+    } else if (state == AppLifecycleState.resumed && _wasBackgrounded) {
+      _wasBackgrounded = false;
+      _returnToDownload();
+    }
+  }
+
+  void _returnToDownload() {
+    if (!mounted) return;
+    _mainTabController.index = 0;
+    Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _mainTabController.dispose();
     _parseElapsedTicker?.cancel();
     _hidePageToast();
     _detachIncomingLinkListenable();
@@ -740,8 +756,11 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
     }
 
     _urlController.text = normalizedUrl;
-    if (!_networkReady || _parserService == null || _isParsing) {
-      _pendingIncomingUrl = normalizedUrl;
+    if (!_networkReady ||
+        !_downloadSettingsReady ||
+        _parserService == null ||
+        _isParsing) {
+      _pendingIncomingEvents.add(event);
       if (mounted) {
         setState(() {
           _errorText = null;
@@ -758,7 +777,7 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
       return;
     }
 
-    _pendingIncomingUrl = null;
+    _returnToDownload();
     if (mounted) {
       setState(() {
         _errorText = null;
@@ -769,30 +788,25 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
       'parsing source=${event.source} origin=${event.origin} url=$normalizedUrl',
     );
     _appendIncomingShareLog('开始自动解析外部链接 url=$normalizedUrl');
-    await _handleParse();
+    await _handleParse(
+      autoDownload:
+          event.origin == 'share_extension' &&
+          _downloadSettings.shareAutoDownload,
+    );
   }
 
   Future<void> _consumePendingIncomingUrlIfNeeded() async {
-    final pendingUrl = _pendingIncomingUrl;
-    if (pendingUrl == null || !_networkReady || _parserService == null) {
+    if (!mounted ||
+        _pendingIncomingEvents.isEmpty ||
+        !_networkReady ||
+        !_downloadSettingsReady ||
+        _parserService == null ||
+        _isParsing) {
       return;
     }
-    if (_isParsing) {
-      return;
-    }
-
-    debugPrint(
-      'lib/source_parser/source_parser_home_page.dart#_consumePendingIncomingUrlIfNeeded: '
-      'resuming url=$pendingUrl',
-    );
-    await _applyIncomingUrl(
-      IncomingLinkEvent(
-        sequence: _lastHandledIncomingLinkSequence,
-        url: pendingUrl,
-        source: 'pending',
-        origin: _incomingBannerState?.event.origin ?? 'unknown',
-      ),
-    );
+    final event = _pendingIncomingEvents.removeAt(0);
+    await _applyIncomingUrl(event);
+    await _consumePendingIncomingUrlIfNeeded();
   }
 
   Future<void> _openProxySettings() async {
@@ -837,21 +851,6 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
     setState(() {});
   }
 
-  void _handleHeaderMenuAction(_HeaderMenuAction action) {
-    switch (action) {
-      case _HeaderMenuAction.xLogin:
-        unawaited(_openXLogin());
-      case _HeaderMenuAction.xLogout:
-        unawaited(_logoutX());
-      case _HeaderMenuAction.downloadSettings:
-        unawaited(_openDownloadSettings());
-      case _HeaderMenuAction.selectDownloadDirectory:
-        unawaited(_handleSelectDownloadDirectory());
-      case _HeaderMenuAction.resetDownloadDirectory:
-        _handleResetDownloadDirectory();
-    }
-  }
-
   Future<void> _loadRecentUrls() async {
     final urls = await _parseHistoryStore.load();
     if (!mounted) {
@@ -863,7 +862,7 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
     });
   }
 
-  Future<void> _handleParse() async {
+  Future<void> _handleParse({bool autoDownload = false}) async {
     final parseUrl = _urlController.text.trim();
     final error = _parserService!.validate(parseUrl);
     if (error != null) {
@@ -902,6 +901,9 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
         '解析成功 platform=${result.platform.label} total=${result.resources.length} url=${result.originalUrl}',
       );
       await _saveParsedUrl(result.originalUrl);
+      if (mounted && autoDownload) {
+        await _handleDownloadAll(result.resources);
+      }
     } on Object catch (error, stack) {
       if (!mounted) {
         return;
@@ -1621,17 +1623,56 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
     );
   }
 
-  void _toggleDownloadPanel() {
-    setState(() {
-      _downloadPanelOpen = !_downloadPanelOpen;
-    });
+  void _openDownloadTasks() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => DownloadTasksPage(
+          activity: Listenable.merge([
+            _downloadQueueController!,
+            _mediaConversionController!,
+          ]),
+          queueBuilder: (_) => _buildDownloadQueue(),
+          historyBuilder: (_) => _buildDownloadHistory(),
+          conversionBuilder: Platform.isIOS
+              ? null
+              : (_) => _buildConversionQueue(),
+        ),
+      ),
+    );
   }
 
-  void _closeDownloadPanel() {
-    setState(() {
-      _downloadPanelOpen = false;
-    });
+  Widget _buildDownloadQueue() {
+    final controller = _downloadQueueController!;
+    return DownloadQueuePanel(
+      tasks: controller.tasks,
+      onCancel: controller.cancel,
+      onRetry: controller.retry,
+      onOpenFolder: _handleOpenDownloadedFolder,
+      onCopyLogs: _handleCopyTaskLogs,
+      onRemove: controller.removeTask,
+      onClearFinished: controller.clearFinishedTasks,
+    );
   }
+
+  Widget _buildDownloadHistory() {
+    final controller = _downloadQueueController!;
+    return DownloadHistoryPanel(
+      records: controller.history,
+      onOpenFolder: _handleOpenHistoryFolder,
+      onConvertToMp4: _handleConvertHistoryToMp4,
+      onClear: controller.clearHistory,
+      canConvertToMp4: !Platform.isIOS,
+      onRemove: _handleRemoveHistory,
+    );
+  }
+
+  Widget _buildConversionQueue() => MediaConversionPanel(
+    tasks: _mediaConversionController!.tasks,
+    onCancel: _mediaConversionController!.cancel,
+    onRetry: _mediaConversionController!.retry,
+    onOpenFolder: _handleOpenConvertedFolder,
+    onCopyLogs: _handleCopyConversionLogs,
+  );
 
   int _activeActivityBadgeCount() {
     final downloadCount = _downloadQueueController!.tasks
@@ -1733,15 +1774,6 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
     }
   }
 
-  void _openDownloadedFiles() {
-    _closeDownloadPanel();
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => DownloadedFilesPage(queue: _downloadQueueController!),
-      ),
-    );
-  }
-
   void _handleConvertHistoryToMp4(DownloadHistoryRecord record) {
     if (_downloadToolStatus.externalCommandBlocked) {
       _showPageToast('当前环境禁止执行 ffmpeg，暂时无法转 MP4');
@@ -1753,9 +1785,6 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
     }
 
     final task = _mediaConversionController!.enqueueM3u8ToMp4(record);
-    setState(() {
-      _downloadPanelOpen = true;
-    });
     _showPageToast('已加入转换队列：${task.outputFileName}');
   }
 
@@ -1874,77 +1903,79 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
     }
 
     return Scaffold(
-      body: SafeArea(
-        child: ResourceHttpClientScope(
-          client: _parserService!.resourceHttpClient,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  return SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(28, 24, 28, 100),
-                    child: Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 980),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            _buildHeader(context),
-                            const SizedBox(height: 22),
-                            _buildParserPanel(context),
-                            const SizedBox(height: 20),
-                            _buildResultSection(context),
-                          ],
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-              AnimatedBuilder(
-                animation: Listenable.merge([
-                  _downloadQueueController!,
-                  _mediaConversionController!,
-                ]),
-                builder: (context, _) {
-                  final controller = _downloadQueueController!;
-                  return DownloadActivityOverlay(
-                    panelOpen: _downloadPanelOpen,
-                    onTogglePanel: _toggleDownloadPanel,
-                    onClosePanel: _closeDownloadPanel,
-                    activeTaskCount: _activeActivityBadgeCount(),
-                    queuePanel: DownloadQueuePanel(
-                      tasks: controller.tasks,
-                      onCancel: controller.cancel,
-                      onRetry: controller.retry,
-                      onOpenFolder: _handleOpenDownloadedFolder,
-                      onCopyLogs: _handleCopyTaskLogs,
-                      onRemove: controller.removeTask,
-                      onClearFinished: controller.clearFinishedTasks,
-                    ),
-                    conversionPanel: Platform.isIOS
-                        ? null
-                        : MediaConversionPanel(
-                            tasks: _mediaConversionController!.tasks,
-                            onCancel: _mediaConversionController!.cancel,
-                            onRetry: _mediaConversionController!.retry,
-                            onOpenFolder: _handleOpenConvertedFolder,
-                            onCopyLogs: _handleCopyConversionLogs,
-                          ),
-                    historyPanel: DownloadHistoryPanel(
-                      records: controller.history,
-                      onOpenFolder: _handleOpenHistoryFolder,
-                      onConvertToMp4: _handleConvertHistoryToMp4,
-                      onClear: controller.clearHistory,
-                      canConvertToMp4: !Platform.isIOS,
-                      onRemove: (record) => _handleRemoveHistory(record),
-                    ),
-                  );
-                },
-              ),
-            ],
+      appBar: AppBar(
+        title: const Text('Video Downloader'),
+        actions: [
+          IconButton(
+            key: const ValueKey('header-settings-menu-button'),
+            tooltip: '设置',
+            onPressed: _downloadSettingsReady ? _openSettings : null,
+            icon: const Icon(Icons.settings),
           ),
+        ],
+        bottom: TabBar(
+          controller: _mainTabController,
+          tabs: const [
+            Tab(text: '下载'),
+            Tab(text: '文件'),
+          ],
+        ),
+      ),
+      body: SafeArea(
+        child: TabBarView(
+          controller: _mainTabController,
+          children: [
+            ResourceHttpClientScope(
+              client: _parserService!.resourceHttpClient,
+              child: SingleChildScrollView(
+                key: const PageStorageKey('download-workspace-scroll'),
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 980),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _buildHeader(context),
+                        const SizedBox(height: 22),
+                        _buildParserPanel(context),
+                        const SizedBox(height: 20),
+                        _buildResultSection(context),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            DownloadedFilesPage(
+              queue: _downloadQueueController!,
+              embedded: true,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openSettings() async {
+    if (!_downloadSettingsReady) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => AppSettingsPage(
+          queue: _downloadQueueController!,
+          settings: () => _downloadSettings,
+          onSave: _saveDownloadSettings,
+          onDownloadSettings: _openDownloadSettings,
+          onSelectDirectory: _handleSelectDownloadDirectory,
+          onResetDirectory: _handleResetDownloadDirectory,
+          onProxySettings: widget.parserService == null
+              ? _openProxySettings
+              : null,
+          accountLabel: () => _xAuthenticated
+              ? (_xDisplayName ?? _xAccountHandle ?? 'X 已登录')
+              : (_xAccountStatusLoaded ? 'X 未登录' : '正在检查 X 登录状态'),
+          authenticated: () => _xAuthenticated,
+          onAccountAction: () => _xAuthenticated ? _logoutX() : _openXLogin(),
         ),
       ),
     );
@@ -2013,121 +2044,18 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
     );
   }
 
-  Widget _buildHeaderActions(BuildContext context) {
-    return Wrap(
-      alignment: WrapAlignment.end,
-      children: [
-        TextButton.icon(
-          key: const ValueKey('downloaded-files-button'),
-          onPressed: _openDownloadedFiles,
-          icon: const Icon(Icons.video_library_outlined),
-          label: const Text('文件'),
-        ),
-        if (widget.parserService == null) ...[
-          if (_savedProxySpec != null && _savedProxySpec!.trim().isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(right: 4),
-              child: Tooltip(
-                message: _savedProxySpec!,
-                child: Icon(
-                  Icons.vpn_key,
-                  size: 20,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-              ),
-            ),
-          IconButton(
-            key: const ValueKey('proxy-settings-button'),
-            tooltip: '代理设置',
-            onPressed: _openProxySettings,
-            icon: const Icon(Icons.settings_ethernet),
-          ),
-        ],
-        if (Platform.isMacOS || Platform.isIOS)
-          PopupMenuButton<_HeaderMenuAction>(
-            key: const ValueKey('x-account-menu-button'),
-            tooltip: _xAuthenticated
-                ? 'X 已登录${_xAccountHandle == null ? '' : ' · $_xAccountHandle'}'
-                : (_xAccountStatusLoaded ? 'X 未登录' : '正在检查 X 登录状态'),
-            icon: Icon(
-              _xAuthenticated ? Icons.account_circle : Icons.person_outline,
-            ),
-            onSelected: _handleHeaderMenuAction,
-            itemBuilder: (context) => [
-              PopupMenuItem<_HeaderMenuAction>(
-                enabled: false,
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(
-                    _xAuthenticated
-                        ? Icons.account_circle
-                        : Icons.person_outline,
-                  ),
-                  title: Text(
-                    _xAuthenticated
-                        ? (_xDisplayName?.isNotEmpty == true
-                              ? _xDisplayName!
-                              : 'X 已登录')
-                        : (_xAccountStatusLoaded ? 'X 未登录' : '正在检查 X 登录状态'),
-                  ),
-                  subtitle: _xAuthenticated && _xAccountHandle != null
-                      ? Text(_xAccountHandle!)
-                      : null,
-                ),
-              ),
-              PopupMenuItem<_HeaderMenuAction>(
-                value: _xAuthenticated
-                    ? _HeaderMenuAction.xLogout
-                    : _HeaderMenuAction.xLogin,
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(_xAuthenticated ? Icons.logout : Icons.login),
-                  title: Text(_xAuthenticated ? '退出 X 登录' : '登录 X'),
-                ),
-              ),
-            ],
-          ),
-        PopupMenuButton<_HeaderMenuAction>(
-          key: const ValueKey('header-settings-menu-button'),
-          tooltip: '更多设置',
-          onSelected: _handleHeaderMenuAction,
-          itemBuilder: (context) {
-            final hasSelectedDirectory =
-                _downloadQueueController?.selectedDirectoryPath != null;
-            return [
-              const PopupMenuItem<_HeaderMenuAction>(
-                value: _HeaderMenuAction.downloadSettings,
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.tune),
-                  title: Text('下载设置'),
-                ),
-              ),
-              if (!Platform.isIOS)
-                const PopupMenuItem<_HeaderMenuAction>(
-                  value: _HeaderMenuAction.selectDownloadDirectory,
-                  child: ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.folder_open),
-                    title: Text('选择保存目录'),
-                  ),
-                ),
-              if (!Platform.isIOS)
-                PopupMenuItem<_HeaderMenuAction>(
-                  value: _HeaderMenuAction.resetDownloadDirectory,
-                  enabled: hasSelectedDirectory,
-                  child: const ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.restart_alt),
-                    title: Text('重置保存目录'),
-                  ),
-                ),
-            ];
-          },
-        ),
-      ],
-    );
-  }
+  Widget _buildHeaderActions(BuildContext context) => AnimatedBuilder(
+    animation: Listenable.merge([
+      _downloadQueueController!,
+      _mediaConversionController!,
+    ]),
+    builder: (context, _) => TextButton.icon(
+      key: const ValueKey('download-tasks-button'),
+      onPressed: _openDownloadTasks,
+      icon: const Icon(Icons.downloading),
+      label: Text('下载任务 (${_activeActivityBadgeCount()})'),
+    ),
+  );
 
   Widget _buildParserPanel(BuildContext context) {
     return DecoratedBox(
@@ -2163,31 +2091,8 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
               isParsing: _isParsing,
               onOpenBrowser: _handleOpenInBrowser,
               onParse: _handleParse,
+              onRecent: _openRecentUrlHistory,
             ),
-            if (_recentUrls.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final compact = constraints.maxWidth < 480;
-                  return Align(
-                    alignment: Alignment.centerLeft,
-                    child: compact
-                        ? IconButton(
-                            key: const ValueKey('open-recent-urls-button'),
-                            tooltip: '最近解析',
-                            onPressed: _openRecentUrlHistory,
-                            icon: const Icon(Icons.history),
-                          )
-                        : OutlinedButton.icon(
-                            key: const ValueKey('open-recent-urls-button'),
-                            onPressed: _openRecentUrlHistory,
-                            icon: const Icon(Icons.history),
-                            label: Text('最近解析 (${_recentUrls.length})'),
-                          ),
-                  );
-                },
-              ),
-            ],
             if (_isParsing) ...[
               const SizedBox(height: 14),
               ClipRRect(
@@ -2253,7 +2158,10 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '已自动填入链接并开始解析，你可以随时查看这次接入日志。',
+                  _downloadSettings.shareAutoDownload &&
+                          bannerState.event.origin == 'share_extension'
+                      ? '已接收分享链接，解析后将自动添加下载任务，可查看接入日志。'
+                      : '已自动填入链接并开始解析，你可以随时查看这次接入日志。',
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
               ],
