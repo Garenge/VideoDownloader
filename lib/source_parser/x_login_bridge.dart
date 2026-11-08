@@ -55,12 +55,26 @@ class XLoginBridge {
     return token;
   }
 
-  static Future<String> fetchLikesJson() async {
-    final response = await _channel.invokeMethod<String>('fetchLikes');
+  static Future<String> fetchLikesJson({String? cursor}) async {
+    final response = await _channel.invokeMethod<String>('fetchLikes', {
+      'cursor': ?cursor,
+    });
     if (response == null || response.isEmpty) {
       throw StateError('X 点赞页面没有返回数据');
     }
     return response;
+  }
+
+  static Future<void> cancelLikes() async {
+    try {
+      await _channel.invokeMethod<void>('cancelLikes');
+    } on MissingPluginException {
+      // The likes entry is only enabled on supported platforms.
+    } on PlatformException catch (error) {
+      debugPrint(
+        'x_login_bridge.dart#cancelLikes: cancel failed code=${error.code}',
+      );
+    }
   }
 
   static Future<T?> withCookieFile<T>(

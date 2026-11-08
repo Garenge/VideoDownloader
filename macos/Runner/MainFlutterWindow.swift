@@ -116,7 +116,11 @@ class MainFlutterWindow: NSWindow {
       case "exportCookies":
         self.xLoginController.exportCookies { result($0) }
       case "fetchLikes":
-        self.xLoginController.fetchLikes { result($0) }
+        let arguments = call.arguments as? [String: Any]
+        self.xLoginController.fetchLikes(cursor: arguments?["cursor"] as? String) { result($0) }
+      case "cancelLikes":
+        self.xLoginController.cancelLikes()
+        result(nil)
       case "isAuthenticated":
         self.xLoginController.isAuthenticated { result($0) }
       case "accountStatus":

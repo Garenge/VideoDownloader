@@ -53,6 +53,11 @@ described below differs from the iOS feature set.
   Photos use original image URLs and videos use the highest bitrate MP4;
   when the public interface is unavailable, the desktop parser keeps its
   `yt-dlp` video task fallback.
+- On macOS, Settings → X likes reads the app's signed-in account, supports
+  cursor pagination, search, refresh, and opening original posts. Media posts
+  can return to the Download tab for parsing with the existing X downloader.
+  This uses X's web interface and requires an X login inside the app; browser
+  login sessions are separate. X interface changes or rate limits may interrupt loading.
 - Failed and canceled tasks can be retried directly from the queue page.
 - Queue tasks and individual history entries can be removed without deleting
   completed files. Removing an active task cancels its download.

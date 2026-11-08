@@ -2007,9 +2007,20 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
   }
 
   Future<void> _openXLikes() async {
-    await Navigator.of(
-      context,
-    ).push<void>(MaterialPageRoute<void>(builder: (_) => const XLikesPage()));
+    final url = await Navigator.of(context).push<String>(
+      MaterialPageRoute<String>(builder: (_) => const XLikesPage()),
+    );
+    if (!mounted || url == null) return;
+    Navigator.of(context).pop();
+    _mainTabController.index = 0;
+    await _applyIncomingUrl(
+      IncomingLinkEvent(
+        sequence: 0,
+        url: url,
+        source: 'x_likes',
+        origin: 'x_likes',
+      ),
+    );
   }
 
   Widget _buildHeader(BuildContext context) {
