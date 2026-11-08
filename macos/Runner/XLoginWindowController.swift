@@ -9,6 +9,13 @@ final class XLoginWindowController: NSObject, NSWindowDelegate, WKHTTPCookieStor
   private let dataStore = WKWebsiteDataStore.default()
   private var window: NSWindow?
   private var webView: WKWebView?
+  private var likesWebView: WKWebView?
+  private var likesWindow: NSWindow?
+  private var likesCompletion: ((String) -> Void)?
+  private var likesAttempt = 0
+  private var likesLastPostCount = 0
+  private var likesStalledAttempts = 0
+  private let likesMaxPosts = 100
   private var loginCompletions: [(Bool) -> Void] = []
   private var isClosingAfterLogin = false
 
@@ -53,6 +60,38 @@ final class XLoginWindowController: NSObject, NSWindowDelegate, WKHTTPCookieStor
         "# Generated temporarily by VideoDownloader",
       ] + lines).joined(separator: "\n") + "\n")
     }
+  }
+
+  func fetchLikes(completion: @escaping (String) -> Void) {
+    if likesCompletion != nil {
+      completion("{\"error\":\"X 点赞请求已在进行中\"}")
+      return
+    }
+    likesCompletion = completion
+    likesAttempt = 0
+    likesLastPostCount = 0
+    likesStalledAttempts = 0
+    if likesWebView == nil {
+      let configuration = WKWebViewConfiguration()
+      configuration.websiteDataStore = dataStore
+      let likesWebView = WKWebView(frame: .zero, configuration: configuration)
+      likesWebView.navigationDelegate = self
+      self.likesWebView = likesWebView
+    }
+    if likesWindow == nil, let likesWebView {
+      let likesWindow = NSWindow(
+        contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
+        styleMask: [.titled, .closable],
+        backing: .buffered,
+        defer: false
+      )
+      likesWindow.title = "X 点赞列表加载"
+      likesWindow.contentView = likesWebView
+      likesWindow.orderOut(nil)
+      self.likesWindow = likesWindow
+    }
+    likesWebView?.stopLoading()
+    likesWebView?.load(URLRequest(url: URL(string: "https://x.com/i/history/likes")!))
   }
 
   func isAuthenticated(completion: @escaping (Bool) -> Void) {
@@ -104,7 +143,112 @@ final class XLoginWindowController: NSObject, NSWindowDelegate, WKHTTPCookieStor
   }
 
   func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    if webView === likesWebView {
+      pollLikesPage()
+      return
+    }
     captureAccountDetails(from: webView, closeWhenDone: false)
+  }
+
+  private func pollLikesPage() {
+    guard likesCompletion != nil, let likesWebView else { return }
+    likesAttempt += 1
+    let script = """
+      (() => {
+        const articles = Array.from(document.querySelectorAll('article[data-testid="tweet"]'));
+        const extractMetric = (article, pattern) => {
+          const label = Array.from(article.querySelectorAll('button'))
+            .map((button) => button.getAttribute('aria-label') || '')
+            .find((value) => pattern.test(value));
+          return label || null;
+        };
+        const posts = articles.map((article) => {
+          const status = Array.from(article.querySelectorAll('a[href*="/status/"]'))
+            .map((link) => link.getAttribute('href') || '')
+            .find((href) => /\\/status\\/\\d+/.test(href)) || '';
+          const statusParts = status.split('/').filter(Boolean);
+          const id = statusParts.length ? statusParts[statusParts.length - 1] : '';
+          const authorLink = Array.from(article.querySelectorAll('a[href^="/"]'))
+            .map((link) => link.getAttribute('href') || '')
+            .find((href) => /^\\/[^/]+$/.test(href));
+          const author = authorLink ? '@' + authorLink.slice(1) : '';
+          const time = article.querySelector('time');
+          const text = article.querySelector('[data-testid="tweetText"]');
+          const image = article.querySelector('img[src*="pbs.twimg.com/media"]');
+          const video = article.querySelector('video');
+          return {
+            id,
+            author,
+            text: text ? text.innerText : '',
+            createdAt: time ? time.getAttribute('datetime') : null,
+            url: status ? new URL(status, location.origin).toString() : null,
+            replies: extractMetric(article, /repl|回复/i),
+            reposts: extractMetric(article, /repost|转发/i),
+            likes: extractMetric(article, /like|喜欢/i),
+            views: extractMetric(article, /view|查看/i),
+            mediaUrl: image ? image.getAttribute('src') : (video ? video.getAttribute('poster') : null)
+          };
+        });
+        window.__videoDownloaderLikes = window.__videoDownloaderLikes || {};
+        posts.forEach((post) => {
+          if (post.id) window.__videoDownloaderLikes[post.id] = post;
+        });
+        const allPosts = Object.values(window.__videoDownloaderLikes);
+        const beforeScroll = window.scrollY;
+        window.scrollBy(0, Math.max(window.innerHeight * 0.85, 650));
+        return JSON.stringify({
+          posts: allPosts.slice(0, \(likesMaxPosts)),
+          articleCount: articles.length,
+          postCount: allPosts.length,
+          atBottom: window.innerHeight + beforeScroll >= document.body.scrollHeight - 200,
+          pageUrl: location.href,
+          title: document.title,
+          readyState: document.readyState,
+          bodyText: (document.body ? document.body.innerText : '').slice(0, 800)
+        });
+      })()
+      """
+    likesWebView.evaluateJavaScript(script) { [weak self] result, error in
+      guard let self else { return }
+      if let error {
+        self.finishLikes("{\"error\":\"页面读取失败: \(error.localizedDescription)\"}")
+        return
+      }
+      let json = result as? String ?? "{\"posts\":[],\"articleCount\":0,\"postCount\":0}"
+      if let data = json.data(using: .utf8),
+        let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        let postCount = payload["postCount"] as? Int
+      {
+        if postCount == self.likesLastPostCount {
+          self.likesStalledAttempts += 1
+        } else {
+          self.likesLastPostCount = postCount
+          self.likesStalledAttempts = 0
+        }
+        let atBottom = payload["atBottom"] as? Bool ?? false
+        if postCount >= self.likesMaxPosts ||
+          (atBottom && self.likesStalledAttempts >= 3) ||
+          self.likesAttempt >= 45
+        {
+          self.finishLikes(json)
+          return
+        }
+      }
+      if self.likesAttempt >= 45 {
+        self.finishLikes(json)
+        return
+      }
+      DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+        self?.pollLikesPage()
+      }
+    }
+  }
+
+  private func finishLikes(_ json: String) {
+    guard let completion = likesCompletion else { return }
+    likesCompletion = nil
+    likesWebView?.stopLoading()
+    completion(json)
   }
 
   func cookiesDidChange(in cookieStore: WKHTTPCookieStore) {

@@ -55,6 +55,14 @@ class XLoginBridge {
     return token;
   }
 
+  static Future<String> fetchLikesJson() async {
+    final response = await _channel.invokeMethod<String>('fetchLikes');
+    if (response == null || response.isEmpty) {
+      throw StateError('X 点赞页面没有返回数据');
+    }
+    return response;
+  }
+
   static Future<T?> withCookieFile<T>(
     Future<T> Function(String cookieFilePath) action,
   ) async {
@@ -88,5 +96,9 @@ class XLoginBridge {
     } finally {
       await directory.delete(recursive: true);
     }
+  }
+
+  static Future<String> readCookieFile(String path) async {
+    return File(path).readAsString();
   }
 }

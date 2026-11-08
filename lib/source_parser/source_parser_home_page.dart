@@ -31,6 +31,7 @@ import 'resource_thumbnail_image.dart';
 import 'source_parser_service.dart';
 import 'source_resource.dart';
 import 'x_login_bridge.dart';
+import 'x_likes_page.dart';
 import 'parse_failure_message.dart';
 import 'ios/ios_download_info.dart';
 import 'parser_action_bar.dart';
@@ -221,6 +222,7 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
   Timer? _parseElapsedTicker;
   late final TabController _mainTabController;
   bool _wasBackgrounded = false;
+  bool _returnHomeOnResume = false;
   final List<IncomingLinkEvent> _pendingIncomingEvents = [];
   int _lastHandledIncomingLinkSequence = 0;
   ValueListenable<IncomingLinkEvent?>? _attachedIncomingLinkListenable;
@@ -604,7 +606,7 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
   }
 
   void _returnToDownload() {
-    if (!mounted) return;
+    if (!mounted || !_returnHomeOnResume) return;
     _mainTabController.index = 0;
     Navigator.of(context).popUntil((route) => route.isFirst);
   }
@@ -1640,22 +1642,27 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
     );
   }
 
-  void _openDownloadTasks() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => DownloadTasksPage(
-          activity: Listenable.merge([
-            _downloadQueueController!,
-            _mediaConversionController!,
-          ]),
-          queueBuilder: (_) => _buildDownloadQueue(),
-          historyBuilder: (_) => _buildDownloadHistory(),
-          conversionBuilder: Platform.isIOS
-              ? null
-              : (_) => _buildConversionQueue(),
+  Future<void> _openDownloadTasks() async {
+    _returnHomeOnResume = true;
+    try {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => DownloadTasksPage(
+            activity: Listenable.merge([
+              _downloadQueueController!,
+              _mediaConversionController!,
+            ]),
+            queueBuilder: (_) => _buildDownloadQueue(),
+            historyBuilder: (_) => _buildDownloadHistory(),
+            conversionBuilder: Platform.isIOS
+                ? null
+                : (_) => _buildConversionQueue(),
+          ),
         ),
-      ),
-    );
+      );
+    } finally {
+      _returnHomeOnResume = false;
+    }
   }
 
   Widget _buildDownloadQueue() {
@@ -1993,9 +2000,16 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
               : (_xAccountStatusLoaded ? 'X 未登录' : '正在检查 X 登录状态'),
           authenticated: () => _xAuthenticated,
           onAccountAction: () => _xAuthenticated ? _logoutX() : _openXLogin(),
+          onLikedPosts: Platform.isMacOS ? _openXLikes : null,
         ),
       ),
     );
+  }
+
+  Future<void> _openXLikes() async {
+    await Navigator.of(
+      context,
+    ).push<void>(MaterialPageRoute<void>(builder: (_) => const XLikesPage()));
   }
 
   Widget _buildHeader(BuildContext context) {

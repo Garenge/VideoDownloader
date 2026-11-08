@@ -115,6 +115,8 @@ class MainFlutterWindow: NSWindow {
         self.xLoginController.openLogin { authenticated in result(authenticated) }
       case "exportCookies":
         self.xLoginController.exportCookies { result($0) }
+      case "fetchLikes":
+        self.xLoginController.fetchLikes { result($0) }
       case "isAuthenticated":
         self.xLoginController.isAuthenticated { result($0) }
       case "accountStatus":

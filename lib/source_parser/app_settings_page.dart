@@ -16,6 +16,7 @@ class AppSettingsPage extends StatefulWidget {
     required this.authenticated,
     required this.onAccountAction,
     this.onProxySettings,
+    this.onLikedPosts,
   });
   final DownloadQueueController queue;
   final DownloadSettings Function() settings;
@@ -27,6 +28,7 @@ class AppSettingsPage extends StatefulWidget {
   final bool Function() authenticated;
   final Future<void> Function() onAccountAction;
   final Future<void> Function()? onProxySettings;
+  final Future<void> Function()? onLikedPosts;
 
   @override
   State<AppSettingsPage> createState() => _AppSettingsPageState();
@@ -85,6 +87,14 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
               leading: const Icon(Icons.settings_ethernet),
               title: const Text('代理设置'),
               onTap: widget.onProxySettings,
+            ),
+          if (widget.onLikedPosts != null)
+            ListTile(
+              key: const ValueKey('x-liked-posts-button'),
+              leading: const Icon(Icons.favorite),
+              title: const Text('X 点赞列表'),
+              subtitle: const Text('读取当前 X 登录账号的点赞内容'),
+              onTap: widget.onLikedPosts,
             ),
           if (!Platform.isIOS) ...[
             ListTile(
