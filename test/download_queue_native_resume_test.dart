@@ -49,7 +49,7 @@ void main() {
         ),
       );
       final first = controller();
-      final task = first.enqueue(
+      final task = (await first.enqueue(
         SourceResource(
           title: 'video',
           url: 'http://127.0.0.1:${server.port}/video.mp4',
@@ -58,7 +58,7 @@ void main() {
           host: '127.0.0.1',
           sizeHint: '',
         ),
-      );
+      ))!;
       await _waitFor(
         () async {
           final path = task.filePath;

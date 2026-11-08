@@ -120,7 +120,7 @@ void main() {
         useIoHttpClientForDirectDownloads: false,
         client: MockClient((_) async => http.Response('video', 200)),
       );
-      controller.enqueue(resource);
+      await controller.enqueue(resource);
       await controller.ready;
       await waitForCompletion(controller);
       await controller.flushQueue();

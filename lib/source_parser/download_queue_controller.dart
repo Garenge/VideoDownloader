@@ -7,6 +7,7 @@ import 'package:http/io_client.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'download_history_store.dart';
+import 'download_enqueue_result.dart';
 import 'download_queue_store.dart';
 import 'download_queue_persistence.dart';
 import 'resumable_file_transfer.dart';
@@ -161,7 +162,6 @@ class DownloadQueueController extends ChangeNotifier {
       _tasks,
     );
     _ready = _restoreQueue();
-    unawaited(_loadDownloadHistory());
   }
 
   late final DownloadQueuePersistence _persistence;
@@ -173,6 +173,7 @@ class DownloadQueueController extends ChangeNotifier {
 
   Future<void> _restoreQueue() async {
     await _persistence.restore();
+    await _loadDownloadHistory();
     if (_disposed) return;
     notifyListeners();
     unawaited(_runNext());
@@ -293,7 +294,28 @@ class DownloadQueueController extends ChangeNotifier {
     notifyListeners();
   }
 
-  DownloadTask enqueue(SourceResource resource) {
+  Future<DownloadTask?> enqueue(SourceResource resource) async =>
+      (await enqueueWithResult(resource)).task;
+
+  Future<DownloadEnqueueResult> enqueueWithResult(
+    SourceResource resource,
+  ) async {
+    await _ready;
+    if (_disposed) {
+      return const DownloadEnqueueResult(DownloadEnqueueAction.unavailable);
+    }
+    if (_hasDownloadedResource(resource)) {
+      return const DownloadEnqueueResult(DownloadEnqueueAction.downloaded);
+    }
+    final existing = _findReusableTask(resource);
+    if (existing != null) return _reuseTask(existing);
+    return DownloadEnqueueResult(
+      DownloadEnqueueAction.created,
+      _createTask(resource),
+    );
+  }
+
+  DownloadTask _createTask(SourceResource resource) {
     final task = DownloadTask(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
       resource: resource,
@@ -304,6 +326,49 @@ class DownloadQueueController extends ChangeNotifier {
     notifyListeners();
     unawaited(_runNext());
     return task;
+  }
+
+  DownloadTask? _findReusableTask(SourceResource resource) {
+    final matches = _tasks.where(
+      (task) => task.resource.downloadIdentity == resource.downloadIdentity,
+    );
+    return matches
+            .where(
+              (task) =>
+                  task.status == DownloadStatus.pending ||
+                  task.status == DownloadStatus.downloading,
+            )
+            .firstOrNull ??
+        matches
+            .where(
+              (task) =>
+                  task.status == DownloadStatus.failed ||
+                  task.status == DownloadStatus.canceled,
+            )
+            .firstOrNull;
+  }
+
+  DownloadEnqueueResult _reuseTask(DownloadTask task) {
+    if (task.status == DownloadStatus.failed ||
+        task.status == DownloadStatus.canceled) {
+      retry(task);
+      return DownloadEnqueueResult(DownloadEnqueueAction.retried, task);
+    }
+    return DownloadEnqueueResult(DownloadEnqueueAction.existing, task);
+  }
+
+  bool _hasDownloadedResource(SourceResource resource) {
+    final identity = resource.downloadIdentity;
+    final paths = <String>{
+      for (final task in _tasks)
+        if (task.status == DownloadStatus.completed &&
+            task.resource.downloadIdentity == identity &&
+            task.filePath != null)
+          task.filePath!,
+      for (final record in _history)
+        if (record.downloadIdentity == identity) record.filePath,
+    };
+    return paths.any((path) => File(path).existsSync());
   }
 
   void setDownloadDirectory(String path) {
@@ -753,6 +818,7 @@ class DownloadQueueController extends ChangeNotifier {
         filePath: filePath,
         sourceUrl: task.resource.url,
         completedAt: DateTime.now(),
+        resourceIdentity: task.resource.downloadIdentity,
       ),
     );
     _history

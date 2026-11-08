@@ -48,7 +48,7 @@ void main() {
       );
       addTearDown(controller.dispose);
       final result = await parser.parse('https://x.com/demo/status/123');
-      final task = controller.enqueue(result.resources.single);
+      final task = (await controller.enqueue(result.resources.single))!;
       await waitForDownload(controller, task);
       expect(task.status, DownloadStatus.completed, reason: task.errorMessage);
       expect(task.fileName, 'photo.png');

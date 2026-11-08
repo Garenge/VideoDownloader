@@ -143,7 +143,13 @@ void main() {
     await tester.pump();
     await tester.pump();
     expect(parser.parsed, ['https://example.com/1']);
-    parser.firstParse!.complete();
+    await tester.runAsync(() async {
+      parser.firstParse!.complete();
+      // Queue restoration uses real file I/O before automatic enqueueing.
+      for (var i = 0; i < 200 && parser.parsed.length < 2; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+    });
     await tester.pumpAndSettle();
     share(2);
     await tester.pumpAndSettle();

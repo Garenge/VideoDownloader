@@ -1,3 +1,5 @@
+import 'download_resource_identity.dart';
+
 enum SourcePlatform {
   douyin('Douyin', '抖音'),
   x('X', 'X'),
@@ -61,6 +63,9 @@ class SourceResource {
   /// 非空时表示这是 YouTube 资源，应走专用下载引擎而不是对 [url] 做直链 GET。
   final String? youtubeVideoId;
   final bool requiresYtDlp;
+
+  String get downloadIdentity =>
+      downloadResourceIdentity(url, youtubeVideoId: youtubeVideoId);
 
   String get fileExtension {
     final path = Uri.tryParse(url)?.path ?? url;

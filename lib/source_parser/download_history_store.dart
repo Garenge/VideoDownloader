@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
 
+import 'download_resource_identity.dart';
+
 typedef DownloadHistoryFileResolver = Future<File> Function();
 
 class DownloadHistoryRecord {
@@ -11,12 +13,17 @@ class DownloadHistoryRecord {
     required this.filePath,
     required this.sourceUrl,
     required this.completedAt,
+    this.resourceIdentity,
   });
 
   final String fileName;
   final String filePath;
   final String sourceUrl;
   final DateTime completedAt;
+  final String? resourceIdentity;
+
+  String get downloadIdentity =>
+      resourceIdentity ?? downloadResourceIdentity(sourceUrl);
 
   String get fileExtension {
     final path = filePath.toLowerCase();
@@ -35,6 +42,7 @@ class DownloadHistoryRecord {
       'filePath': filePath,
       'sourceUrl': sourceUrl,
       'completedAt': completedAt.toIso8601String(),
+      if (resourceIdentity != null) 'resourceIdentity': resourceIdentity,
     };
   }
 
@@ -62,6 +70,9 @@ class DownloadHistoryRecord {
       filePath: filePath,
       sourceUrl: sourceUrl,
       completedAt: completedAt,
+      resourceIdentity: value['resourceIdentity'] is String
+          ? value['resourceIdentity'] as String
+          : null,
     );
   }
 }

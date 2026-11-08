@@ -34,9 +34,9 @@ void main() {
         controller.dispose();
         await controller.flushQueue();
       });
-      final active = controller.enqueue(_resource);
+      final active = (await controller.enqueue(_resource))!;
       await _waitForStatus(active, DownloadStatus.downloading);
-      final pending = controller.enqueue(_secondResource);
+      final pending = (await controller.enqueue(_secondResource))!;
       controller.clearFinishedTasks();
       expect(controller.tasks, hasLength(2));
       controller.removeTask(pending);
@@ -45,7 +45,7 @@ void main() {
       await _waitForStatus(active, DownloadStatus.canceled);
       expect(controller.tasks, isEmpty);
       expect(pending.status, DownloadStatus.canceled);
-      final next = controller.enqueue(_secondResource);
+      final next = (await controller.enqueue(_secondResource))!;
       await _waitForStatus(next, DownloadStatus.completed);
       expect(await File(next.filePath!).readAsString(), 'video');
       controller.clearFinishedTasks();
@@ -71,7 +71,7 @@ void main() {
         controller.dispose();
         await controller.flushQueue();
       });
-      final task = controller.enqueue(_resource);
+      final task = (await controller.enqueue(_resource))!;
       await _waitForStatus(task, DownloadStatus.completed);
       for (var i = 0; controller.history.isEmpty && i < 100; i++) {
         await Future<void>.delayed(const Duration(milliseconds: 10));
@@ -106,7 +106,7 @@ void main() {
       await controller.flushQueue();
     });
 
-    final task = controller.enqueue(_resource);
+    final task = (await controller.enqueue(_resource))!;
     await _waitForStatus(task, DownloadStatus.completed, maxAttempts: 200);
 
     expect(task.progress, 1);
@@ -139,13 +139,13 @@ void main() {
     });
 
     controller.setDownloadDirectory(selectedDirectory.path);
-    final selectedTask = controller.enqueue(_resource);
+    final selectedTask = (await controller.enqueue(_resource))!;
     await _waitForStatus(selectedTask, DownloadStatus.completed);
 
     expect(selectedTask.filePath, startsWith(selectedDirectory.path));
 
     controller.resetDownloadDirectory();
-    final defaultTask = controller.enqueue(_secondResource);
+    final defaultTask = (await controller.enqueue(_secondResource))!;
     await _waitForStatus(defaultTask, DownloadStatus.completed);
 
     expect(defaultTask.filePath, startsWith(defaultDirectory.path));
@@ -176,7 +176,7 @@ void main() {
       await controller.flushQueue();
     });
 
-    final task = controller.enqueue(_resource);
+    final task = (await controller.enqueue(_resource))!;
     await _waitForStatus(task, DownloadStatus.completed);
     await controller.openDownloadedFolder(task);
 
@@ -240,9 +240,9 @@ void main() {
       controller.dispose();
       await controller.flushQueue();
     });
-    final active = controller.enqueue(_resource);
+    final active = (await controller.enqueue(_resource))!;
     await _waitForStatus(active, DownloadStatus.downloading);
-    final pending = controller.enqueue(_secondResource);
+    final pending = (await controller.enqueue(_secondResource))!;
     controller.cancel(pending);
     controller.cancel(active);
     blocked.complete(http.Response('cancel response', 200));
@@ -283,7 +283,7 @@ void main() {
       await controller.flushQueue();
     });
 
-    final task = controller.enqueue(_resource);
+    final task = (await controller.enqueue(_resource))!;
     await _waitForStatus(task, DownloadStatus.failed);
     expect(task.errorMessage, isNotNull);
 
@@ -315,7 +315,7 @@ void main() {
       await controller.flushQueue();
     });
 
-    final task = controller.enqueue(_resource);
+    final task = (await controller.enqueue(_resource))!;
     await _waitForStatus(task, DownloadStatus.failed);
 
     expect(task.errorMessage, contains('下载结果为空文件，已判定为失败'));
@@ -351,7 +351,7 @@ void main() {
       await controller.flushQueue();
     });
 
-    final task = controller.enqueue(_youtubeResource);
+    final task = (await controller.enqueue(_youtubeResource))!;
     await _waitForStatus(task, DownloadStatus.completed);
 
     expect(task.filePath, isNotNull);
@@ -387,7 +387,7 @@ void main() {
       await controller.flushQueue();
     });
 
-    final task = controller.enqueue(_youtubeResource);
+    final task = (await controller.enqueue(_youtubeResource))!;
     await _waitForStatus(task, DownloadStatus.failed);
 
     expect(task.errorMessage, contains('下载结果为空文件，已判定为失败'));
@@ -437,7 +437,7 @@ void main() {
       await controller.flushQueue();
     });
 
-    final task = controller.enqueue(_youtubeResource);
+    final task = (await controller.enqueue(_youtubeResource))!;
     await _waitForStatus(task, DownloadStatus.completed);
 
     expect(progressSamples, isNotEmpty);
@@ -477,7 +477,7 @@ void main() {
       await controller.flushQueue();
     });
 
-    final task = controller.enqueue(_youtubeResource);
+    final task = (await controller.enqueue(_youtubeResource))!;
     await _waitForStatus(task, DownloadStatus.failed, maxAttempts: 200);
 
     expect(called, isFalse);
@@ -511,7 +511,7 @@ void main() {
       await controller.flushQueue();
     });
 
-    final task = controller.enqueue(_youtubeResource);
+    final task = (await controller.enqueue(_youtubeResource))!;
     await _waitForStatus(task, DownloadStatus.failed, maxAttempts: 200);
 
     expect(spyClient.closed, isFalse);
@@ -540,7 +540,7 @@ void main() {
       await controller.flushQueue();
     });
 
-    final task = controller.enqueue(_resource);
+    final task = (await controller.enqueue(_resource))!;
     await _waitForStatus(task, DownloadStatus.completed);
 
     expect(controller.history, hasLength(1));
@@ -581,7 +581,7 @@ void main() {
       await controller.flushQueue();
     });
 
-    final task = controller.enqueue(_youtubeResource);
+    final task = (await controller.enqueue(_youtubeResource))!;
     await _waitForStatus(task, DownloadStatus.completed);
 
     expect(ytDlpCalled, isTrue);
@@ -617,7 +617,7 @@ void main() {
       await controller.flushQueue();
     });
 
-    final task = controller.enqueue(_youtubeResource);
+    final task = (await controller.enqueue(_youtubeResource))!;
     await _waitForStatus(task, DownloadStatus.completed);
 
     expect(task.filePath, isNot(existingFile.path));
@@ -651,7 +651,7 @@ void main() {
       await controller.flushQueue();
     });
 
-    final task = controller.enqueue(_xResource);
+    final task = (await controller.enqueue(_xResource))!;
     await _waitForStatus(task, DownloadStatus.completed);
 
     expect(task.filePath, isNotNull);
@@ -694,7 +694,7 @@ void main() {
         await controller.flushQueue();
       });
 
-      final task = controller.enqueue(_xResource);
+      final task = (await controller.enqueue(_xResource))!;
       await _waitForStatus(task, DownloadStatus.completed);
 
       expect(attemptedArgs, isNotEmpty);
@@ -733,7 +733,7 @@ void main() {
       await controller.flushQueue();
     });
 
-    final task = controller.enqueue(_xResource);
+    final task = (await controller.enqueue(_xResource))!;
     await _waitForStatus(task, DownloadStatus.failed);
 
     expect(task.errorMessage, contains('没有检测到可下载的视频媒体'));

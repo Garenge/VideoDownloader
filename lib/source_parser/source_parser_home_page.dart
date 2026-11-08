@@ -11,6 +11,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'app_settings_page.dart';
 import 'download_tasks_page.dart';
 import 'download_history_store.dart';
+import 'download_enqueue_result.dart';
 import 'incoming_link_bridge.dart';
 import 'download_settings.dart';
 import 'download_settings_sheet.dart';
@@ -1168,7 +1169,7 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
         return;
       }
     }
-    _enqueueDownload(resource);
+    await _enqueueDownload(resource);
   }
 
   Future<void> _handleDownloadAll(List<SourceResource> resources) async {
@@ -1177,7 +1178,7 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
     }
 
     final uniqueResources = <String, SourceResource>{
-      for (final resource in resources) resource.url: resource,
+      for (final resource in resources) resource.downloadIdentity: resource,
     }.values.toList();
     final candidates = Platform.isIOS
         ? uniqueResources
@@ -1206,12 +1207,13 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
         (resource) =>
             allowFfmpegResources || !resource.requiresFfmpegPostProcess,
       );
+      var queuedCount = 0;
       for (final resource in queuedResources) {
-        _enqueueDownload(resource, showToast: false);
+        if (!mounted) return;
+        if (await _enqueueDownload(resource, showToast: false)) queuedCount++;
       }
 
       if (mounted) {
-        final queuedCount = queuedResources.length;
         final skippedCount = uniqueResources.length - queuedCount;
         _showPageToast(
           skippedCount > 0
@@ -1248,11 +1250,26 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
     return resource.requiresYtDlp && resource.platform == SourcePlatform.x;
   }
 
-  void _enqueueDownload(SourceResource resource, {bool showToast = true}) {
-    final task = _downloadQueueController!.enqueue(resource);
-    if (showToast) {
-      _showPageToast('已加入下载队列：${task.fileName}');
+  Future<bool> _enqueueDownload(
+    SourceResource resource, {
+    bool showToast = true,
+  }) async {
+    final result = await _downloadQueueController!.enqueueWithResult(resource);
+    if (showToast && mounted) {
+      _showEnqueueResultToast(result);
     }
+    return result.queued;
+  }
+
+  void _showEnqueueResultToast(DownloadEnqueueResult result) {
+    final message = switch (result.action) {
+      DownloadEnqueueAction.created => '已加入下载队列：${result.task!.fileName}',
+      DownloadEnqueueAction.retried => '已重试原下载任务：${result.task!.fileName}',
+      DownloadEnqueueAction.existing => '该资源已在下载队列中',
+      DownloadEnqueueAction.downloaded => '该资源已下载',
+      DownloadEnqueueAction.unavailable => null,
+    };
+    if (message != null) _showPageToast(message);
   }
 
   Future<XVideoPreflightResult> _maybeProbeXVideoBeforeDownload(
@@ -1573,7 +1590,7 @@ class _SourceParserHomePageState extends State<SourceParserHomePage>
         return;
       }
       if (result.ok) {
-        _enqueueDownload(resource);
+        await _enqueueDownload(resource);
       } else {
         await _showXPreflightFailureDialog(resource, result);
       }
