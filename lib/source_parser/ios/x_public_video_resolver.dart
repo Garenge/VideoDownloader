@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 
 import '../source_resource.dart';
+import '../download_file_naming.dart';
 import '../x_login_bridge.dart';
 import '../x_media_url.dart';
 import 'ios_media_bridge.dart';
@@ -49,7 +50,7 @@ class XPublicVideoResolver {
     if (response.statusCode != 200) {
       throw SourceParserException('X 公开媒体解析失败：HTTP ${response.statusCode}');
     }
-    return _extract(jsonDecode(response.body), id);
+    return withAttachmentSources(_extract(jsonDecode(response.body), id), page);
   }
 
   List<SourceResource> _extract(Object? decoded, String id) {

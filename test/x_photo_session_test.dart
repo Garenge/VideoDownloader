@@ -35,6 +35,18 @@ void main() {
         ]);
         expect(result.resourcesOf(SourceResourceType.image), hasLength(2));
         expect(
+          result.resources.map((r) => r.attachmentIndex),
+          mixed ? [1, 2, 3] : [1, 2],
+        );
+        expect(
+          result.resources.every(
+            (r) =>
+                r.sourcePageUrl == 'https://x.com/demo/status/123' &&
+                r.attachmentCount == (mixed ? 3 : 2),
+          ),
+          isTrue,
+        );
+        expect(
           result.resourcesOf(SourceResourceType.video),
           hasLength(mixed ? 1 : 0),
         );

@@ -7,6 +7,7 @@ import 'package:http/io_client.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'download_history_store.dart';
+import 'download_file_naming.dart';
 import 'download_enqueue_result.dart';
 import 'download_queue_store.dart';
 import 'download_queue_persistence.dart';
@@ -319,7 +320,7 @@ class DownloadQueueController extends ChangeNotifier {
     final task = DownloadTask(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
       resource: resource,
-      fileName: _fileNameFor(resource),
+      fileName: downloadFileName(resource),
     )..directoryPath = _selectedDirectory?.path;
 
     _tasks.insert(0, task);
@@ -709,7 +710,7 @@ class DownloadQueueController extends ChangeNotifier {
       throw const DownloadException('iOS 暂不支持 HLS / DASH 清单下载，请选择 MP4 直链资源');
     }
     final output = task.filePath == null
-        ? await _uniqueFile(directory, task.fileName)
+        ? await uniqueDownloadFile(directory, task.fileName)
         : File(task.filePath!);
     final partial = File('${output.path}.part');
     if (await _alreadyDownloaded(task, output, partial)) return output;
@@ -1010,63 +1011,6 @@ class DownloadQueueController extends ChangeNotifier {
         for (final name in names) '$directory/$name',
     ];
   }
-
-  static Future<File> _uniqueFile(Directory directory, String fileName) async {
-    final parts = _splitFileName(fileName);
-    var index = 1;
-    var file = File('${directory.path}/$fileName');
-
-    while (await file.exists()) {
-      index += 1;
-      file = File('${directory.path}/${parts.name}-$index${parts.extension}');
-    }
-
-    return file;
-  }
-
-  static _FileNameParts _splitFileName(String fileName) {
-    final dotIndex = fileName.lastIndexOf('.');
-    if (dotIndex <= 0 || dotIndex == fileName.length - 1) {
-      return _FileNameParts(fileName, '');
-    }
-
-    return _FileNameParts(
-      fileName.substring(0, dotIndex),
-      fileName.substring(dotIndex),
-    );
-  }
-
-  static String _fileNameFor(SourceResource resource) {
-    final uri = Uri.tryParse(resource.url);
-    final rawName = uri?.pathSegments
-        .where((part) => part.isNotEmpty)
-        .lastOrNull;
-    final baseName = rawName == null || rawName.trim().isEmpty
-        ? resource.title
-        : rawName;
-    final sanitizedName = baseName.replaceAll(RegExp(r'[\\/:*?"<>|]+'), '_');
-
-    if (sanitizedName.contains('.')) {
-      return sanitizedName;
-    }
-
-    return '$sanitizedName.${_fallbackExtension(resource.type)}';
-  }
-
-  static String _fallbackExtension(SourceResourceType type) {
-    return switch (type) {
-      SourceResourceType.video => 'mp4',
-      SourceResourceType.image => 'jpg',
-      SourceResourceType.other => 'bin',
-    };
-  }
-}
-
-class _FileNameParts {
-  const _FileNameParts(this.name, this.extension);
-
-  final String name;
-  final String extension;
 }
 
 class DownloadException implements Exception {

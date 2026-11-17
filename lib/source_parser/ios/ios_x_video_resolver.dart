@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 
 import '../parse_failure_message.dart';
 import '../source_resource.dart';
+import '../download_file_naming.dart';
 import '../x_login_bridge.dart';
 import '../x_media_url.dart';
 import 'x_public_video_resolver.dart';
@@ -39,7 +40,7 @@ class IosXVideoResolver {
           '当前账号未能读取此帖子的图片或 MP4，请检查登录状态或帖子访问权限。',
         );
       }
-      return [
+      return withAttachmentSources([
         for (var index = 0; index < urls.length; index++)
           SourceResource(
             title: 'X ${xMediaType(urls[index])!.displayName} · ${index + 1}',
@@ -49,7 +50,7 @@ class IosXVideoResolver {
             host: Uri.parse(urls[index]).host,
             sizeHint: 'X 登录会话 · 应用内下载',
           ),
-      ];
+      ], page);
     } on Object catch (error, stack) {
       final detail = error is PlatformException
           ? 'code=${error.code} message=${error.message} details=${error.details}'

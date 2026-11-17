@@ -61,6 +61,18 @@ void main() {
         ]);
         expect(images.map((r) => r.fileExtension), ['jpg', 'png']);
         expect(result.resources.every((r) => !r.requiresYtDlp), isTrue);
+        expect(
+          result.resources.map((r) => r.attachmentIndex),
+          mixed ? [1, 2, 3] : [1, 2],
+        );
+        expect(
+          result.resources.every(
+            (r) =>
+                r.attachmentCount == (mixed ? 3 : 2) &&
+                r.sourcePageUrl == 'https://x.com/demo/status/123/photo/1',
+          ),
+          isTrue,
+        );
         final videos = result.resourcesOf(SourceResourceType.video);
         expect(videos, hasLength(mixed ? 1 : 0));
         if (mixed) {

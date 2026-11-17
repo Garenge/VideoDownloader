@@ -25,6 +25,9 @@ class DownloadTaskCodec {
     'sizeHint': resource.sizeHint,
     'youtubeVideoId': resource.youtubeVideoId,
     'requiresYtDlp': resource.requiresYtDlp,
+    'sourcePageUrl': resource.sourcePageUrl,
+    'attachmentIndex': resource.attachmentIndex,
+    'attachmentCount': resource.attachmentCount,
   };
 
   static DownloadTask? decode(Object? value) {
@@ -52,6 +55,9 @@ class DownloadTaskCodec {
         sizeHint: json['sizeHint'] as String,
         youtubeVideoId: json['youtubeVideoId'] as String?,
         requiresYtDlp: json['requiresYtDlp'] as bool? ?? false,
+        sourcePageUrl: json['sourcePageUrl'] as String?,
+        attachmentIndex: json['attachmentIndex'] as int?,
+        attachmentCount: json['attachmentCount'] as int?,
       );
 
   static void _restoreState(DownloadTask task, Map<String, dynamic> json) {

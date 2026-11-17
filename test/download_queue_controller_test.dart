@@ -655,7 +655,7 @@ void main() {
     await _waitForStatus(task, DownloadStatus.completed);
 
     expect(task.filePath, isNotNull);
-    expect(task.fileName, 'openai_1234567890123456789.mp4');
+    expect(task.fileName, '1234567890123456789.mp4');
     expect(await File(task.filePath!).readAsString(), 'x bytes from yt-dlp');
     expect(controller.history, hasLength(1));
   });

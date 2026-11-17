@@ -51,7 +51,7 @@ void main() {
       final task = (await controller.enqueue(result.resources.single))!;
       await waitForDownload(controller, task);
       expect(task.status, DownloadStatus.completed, reason: task.errorMessage);
-      expect(task.fileName, 'photo.png');
+      expect(task.fileName, '123.png');
       expect(await File(task.filePath!).readAsBytes(), png);
     },
   );

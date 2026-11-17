@@ -37,6 +37,7 @@ class _ResourceCollector {
         sizeHint: sizeHint,
         youtubeVideoId: youtubeVideoId,
         requiresYtDlp: requiresYtDlp,
+        sourcePageUrl: pageUri.toString(),
       ),
     );
   }

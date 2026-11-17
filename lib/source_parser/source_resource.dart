@@ -51,6 +51,9 @@ class SourceResource {
     required this.sizeHint,
     this.youtubeVideoId,
     this.requiresYtDlp = false,
+    this.sourcePageUrl,
+    this.attachmentIndex,
+    this.attachmentCount,
   });
 
   final String title;
@@ -63,6 +66,24 @@ class SourceResource {
   /// 非空时表示这是 YouTube 资源，应走专用下载引擎而不是对 [url] 做直链 GET。
   final String? youtubeVideoId;
   final bool requiresYtDlp;
+  final String? sourcePageUrl;
+  final int? attachmentIndex;
+  final int? attachmentCount;
+
+  SourceResource withAttachmentSource(String pageUrl, int index, int count) =>
+      SourceResource(
+        title: title,
+        url: url,
+        type: type,
+        platform: platform,
+        host: host,
+        sizeHint: sizeHint,
+        youtubeVideoId: youtubeVideoId,
+        requiresYtDlp: requiresYtDlp,
+        sourcePageUrl: pageUrl,
+        attachmentIndex: index,
+        attachmentCount: count,
+      );
 
   String get downloadIdentity =>
       downloadResourceIdentity(url, youtubeVideoId: youtubeVideoId);

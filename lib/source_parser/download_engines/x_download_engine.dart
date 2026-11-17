@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../download_queue_controller.dart'
     show DownloadCanceledException, DownloadException, DownloadTask;
 import '../download_settings.dart';
+import '../download_file_naming.dart';
 import '../x_login_bridge.dart';
 import '../path_log_label.dart';
 import 'download_engine.dart';
@@ -423,7 +424,7 @@ class XDownloadEngine extends DownloadEngine {
         reportedPaths: reportedPaths,
       );
       final ext = _resolvedExtension(stagedFile.path);
-      final targetFile = await _uniqueFile(
+      final targetFile = await uniqueDownloadFile(
         directory,
         '${plan.suggestedBaseName}.$ext',
       );
@@ -514,6 +515,8 @@ class XDownloadEngine extends DownloadEngine {
   }
 
   String _suggestBaseName(DownloadTask task) {
+    final postName = xPostBaseName(task.resource);
+    if (postName != null) return postName;
     final rawTitle = task.resource.title.trim();
     final strippedTitle = rawTitle
         .replaceFirst(RegExp(r'^X\s*视频\s*[：:]\s*'), '')
@@ -655,20 +658,6 @@ class XDownloadEngine extends DownloadEngine {
         }
       }
     }
-  }
-
-  static Future<File> _uniqueFile(Directory directory, String fileName) async {
-    final dotIndex = fileName.lastIndexOf('.');
-    final name = dotIndex <= 0 ? fileName : fileName.substring(0, dotIndex);
-    final ext = dotIndex <= 0 ? '' : fileName.substring(dotIndex);
-
-    var index = 1;
-    var file = File('${directory.path}/$fileName');
-    while (await file.exists()) {
-      index += 1;
-      file = File('${directory.path}/$name-$index$ext');
-    }
-    return file;
   }
 
   static String _resolvedExtension(String path) {
