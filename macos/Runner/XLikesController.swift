@@ -54,6 +54,7 @@ final class XLikesController: NSObject, WKScriptMessageHandler, WKNavigationDele
     let view = WKWebView(frame: NSRect(x: 0, y: 0, width: 900, height: 700), configuration: configuration)
     view.navigationDelegate = self
     let window = NSWindow(contentRect: view.frame, styleMask: [.titled], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
     window.contentView = view
     self.window = window
     webView = view
@@ -116,6 +117,7 @@ final class XLikesController: NSObject, WKScriptMessageHandler, WKNavigationDele
   }
 
   private func resetWebView() {
+    webView?.navigationDelegate = nil
     webView?.configuration.userContentController.removeScriptMessageHandler(forName: "xLikes")
     webView?.stopLoading()
     webView = nil

@@ -12,6 +12,7 @@ final class XLoginWindowController: NSObject, NSWindowDelegate, WKHTTPCookieStor
   private let likesController = XLikesController()
   private var loginCompletions: [(Bool) -> Void] = []
   private var isClosingAfterLogin = false
+  private var loginSessionID = UUID()
 
   func openLogin(completion: @escaping (Bool) -> Void) {
     loginCompletions.append(completion)
@@ -22,6 +23,7 @@ final class XLoginWindowController: NSObject, NSWindowDelegate, WKHTTPCookieStor
     }
 
     isClosingAfterLogin = false
+    loginSessionID = UUID()
     let configuration = WKWebViewConfiguration()
     configuration.websiteDataStore = dataStore
     dataStore.httpCookieStore.add(self)
@@ -33,6 +35,7 @@ final class XLoginWindowController: NSObject, NSWindowDelegate, WKHTTPCookieStor
       backing: .buffered,
       defer: false
     )
+    window.isReleasedWhenClosed = false
     window.title = "登录 X"
     window.contentView = webView
     window.delegate = self
@@ -114,19 +117,23 @@ final class XLoginWindowController: NSObject, NSWindowDelegate, WKHTTPCookieStor
   }
 
   func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    guard webView === self.webView else { return }
     captureAccountDetails(from: webView, closeWhenDone: false)
   }
 
   func cookiesDidChange(in cookieStore: WKHTTPCookieStore) {
+    let sessionID = loginSessionID
     cookieStore.getAllCookies { [weak self] cookies in
-      guard let self,
+      guard let self, self.loginSessionID == sessionID,
         cookies.contains(where: { $0.name == "auth_token" && Self.isXCookie($0) })
       else { return }
       DispatchQueue.main.async { [weak self] in
-        guard let self, self.window != nil, !self.isClosingAfterLogin else { return }
+        guard let self, self.loginSessionID == sessionID,
+          self.window != nil, !self.isClosingAfterLogin else { return }
         self.isClosingAfterLogin = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-          guard let self, let webView = self.webView else { return }
+          guard let self, self.loginSessionID == sessionID,
+            let webView = self.webView else { return }
           self.captureAccountDetails(from: webView, closeWhenDone: true)
         }
       }
@@ -144,8 +151,8 @@ final class XLoginWindowController: NSObject, NSWindowDelegate, WKHTTPCookieStor
         return { handle, displayName: text.length > 1 ? text[0] : null };
       })()
       """
-    webView.evaluateJavaScript(script) { [weak self] result, _ in
-      guard let self else { return }
+    webView.evaluateJavaScript(script) { [weak self, weak webView] result, _ in
+      guard let self, let webView, webView === self.webView else { return }
       if let account = result as? [String: Any] {
         if let handle = account["handle"] as? String, !handle.isEmpty {
           UserDefaults.standard.set(handle, forKey: Self.accountHandleKey)
@@ -155,22 +162,35 @@ final class XLoginWindowController: NSObject, NSWindowDelegate, WKHTTPCookieStor
         }
       }
       if closeWhenDone {
-        DispatchQueue.main.async { [weak self] in self?.window?.close() }
+        DispatchQueue.main.async { [weak self, weak webView] in
+          guard let self, let webView, webView === self.webView else { return }
+          self.window?.close()
+        }
       }
     }
   }
 
   func windowWillClose(_ notification: Notification) {
-    dataStore.httpCookieStore.getAllCookies { [weak self] cookies in
-      guard let self else { return }
+    guard let closingWindow = notification.object as? NSWindow,
+      closingWindow === window else { return }
+    let completions = loginCompletions
+    loginCompletions.removeAll()
+    loginSessionID = UUID()
+    dataStore.httpCookieStore.remove(self)
+    webView?.navigationDelegate = nil
+    webView?.stopLoading()
+    window?.delegate = nil
+    window = nil
+    webView = nil
+    isClosingAfterLogin = false
+    completeLogin(completions)
+  }
+
+  private func completeLogin(_ completions: [(Bool) -> Void]) {
+    dataStore.httpCookieStore.getAllCookies { cookies in
       let authenticated = cookies.contains {
         $0.name == "auth_token" && Self.isXCookie($0)
       }
-      let completions = self.loginCompletions
-      self.loginCompletions.removeAll()
-      self.window = nil
-      self.webView = nil
-      self.dataStore.httpCookieStore.remove(self)
       completions.forEach { $0(authenticated) }
     }
   }
