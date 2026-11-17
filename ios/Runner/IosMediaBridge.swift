@@ -25,6 +25,8 @@ final class IosMediaBridge {
         result(token)
       case "exportFile":
         exporter.export(path: call.arguments as? String, result: result)
+      case "exportFiles":
+        exporter.export(paths: call.arguments as? [String], result: result)
       case "previewFile":
         previewer.open(path: call.arguments as? String, result: result)
       case "merge":

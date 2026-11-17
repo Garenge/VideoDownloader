@@ -5,6 +5,29 @@ import 'downloaded_file_store.dart';
 import 'ios/ios_media_bridge.dart';
 
 class DownloadedFileActions {
+  static Future<bool> confirmDeleteMany(
+    BuildContext context,
+    int count,
+  ) async =>
+      await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('删除 $count 个文件？'),
+          content: const Text('将删除所选文件及对应的下载记录，此操作无法撤销。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('删除'),
+            ),
+          ],
+        ),
+      ) ??
+      false;
+
   static Future<void> open(DownloadedFile file) async {
     if (!await File(file.path).exists()) {
       throw const FileSystemException('文件已被移动或删除');

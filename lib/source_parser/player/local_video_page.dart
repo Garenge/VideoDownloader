@@ -8,11 +8,14 @@ import 'package:video_player/video_player.dart';
 import '../downloaded_file_actions.dart';
 import '../downloaded_file_store.dart';
 import 'video_player_surface.dart';
+import 'media_file_queue.dart';
+import 'media_swipe.dart';
 
 class LocalVideoPage extends StatefulWidget {
-  const LocalVideoPage({super.key, required this.file});
+  const LocalVideoPage({super.key, required this.file, this.files = const []});
 
   final DownloadedFile file;
+  final List<DownloadedFile> files;
 
   @override
   State<LocalVideoPage> createState() => _LocalVideoPageState();
@@ -27,10 +30,17 @@ class _LocalVideoPageState extends State<LocalVideoPage>
   bool _changingScreen = false;
   bool _foreground = true;
   int _generation = 0;
+  late final MediaFileQueue _queue;
+  bool _switching = false;
+  DownloadedFile get _file => _queue.current;
 
   @override
   void initState() {
     super.initState();
+    _queue = MediaFileQueue(
+      widget.file,
+      widget.files.where((file) => file.isVideo).toList(),
+    );
     WidgetsBinding.instance.addObserver(this);
     _load();
   }
@@ -57,10 +67,10 @@ class _LocalVideoPageState extends State<LocalVideoPage>
       _error = null;
       _loading = true;
     });
-    await previous?.dispose();
+    if (previous != null) await _release(previous);
     VideoPlayerController? candidate;
     try {
-      final file = File(widget.file.path);
+      final file = File(_file.path);
       if (!await file.exists()) {
         throw const FileSystemException('文件已被移动或删除');
       }
@@ -93,9 +103,40 @@ class _LocalVideoPageState extends State<LocalVideoPage>
     }
   }
 
+  Future<void> _move(int offset) async {
+    if (_switching || _loading || _changingScreen) return;
+    if (!_queue.move(offset)) {
+      _showMessage(offset < 0 ? '已经是第一个视频' : '已经是最后一个视频');
+      return;
+    }
+    _switching = true;
+    _showMessage(offset > 0 ? '下一个视频' : '上一个视频');
+    try {
+      await _load();
+      if (mounted && _fullscreen) await _setScreenMode(true);
+    } finally {
+      _switching = false;
+    }
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          duration: const Duration(milliseconds: 1200),
+        ),
+      );
+  }
+
   Future<void> _release(VideoPlayerController controller) async {
     try {
-      await controller.dispose();
+      try {
+        await controller.pause();
+      } finally {
+        await controller.dispose();
+      }
     } on Object catch (error) {
       debugPrint('local_video_page.dart#_release: 播放资源释放失败 error=$error');
     }
@@ -147,7 +188,7 @@ class _LocalVideoPageState extends State<LocalVideoPage>
     try {
       await _controller?.pause();
       if (_fullscreen) await _toggleFullscreen();
-      await DownloadedFileActions.open(widget.file);
+      await DownloadedFileActions.open(_file);
     } on Object catch (error) {
       debugPrint('local_video_page.dart#_openExternally: 系统打开失败 error=$error');
       if (!mounted) return;
@@ -164,7 +205,7 @@ class _LocalVideoPageState extends State<LocalVideoPage>
         BackButton(color: Colors.white, onPressed: _back),
         Expanded(
           child: Text(
-            widget.file.name,
+            '${_file.name} · ${_queue.positionLabel}',
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(color: Colors.white),
@@ -191,15 +232,18 @@ class _LocalVideoPageState extends State<LocalVideoPage>
         children: [
           if (!_fullscreen) _buildHeader(),
           Expanded(
-            child: VideoPlayerSurface(
-              controller: _controller,
-              title: widget.file.name,
-              loading: _loading,
-              error: _error,
-              fullscreen: _fullscreen,
-              onRetry: _load,
-              onBack: _fullscreen ? _back : null,
-              onToggleFullscreen: _toggleFullscreen,
+            child: MediaVerticalSwipe(
+              onMove: _move,
+              child: VideoPlayerSurface(
+                controller: _controller,
+                title: '${_file.name} · ${_queue.positionLabel}',
+                loading: _loading,
+                error: _error,
+                fullscreen: _fullscreen,
+                onRetry: _load,
+                onBack: _fullscreen ? _back : null,
+                onToggleFullscreen: _toggleFullscreen,
+              ),
             ),
           ),
         ],

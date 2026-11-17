@@ -3,6 +3,11 @@ import 'download_queue_controller.dart';
 import 'downloaded_file_actions.dart';
 import 'downloaded_file_store.dart';
 import 'downloaded_file_tile.dart';
+import 'downloaded_file_batch_actions.dart';
+import 'downloaded_files_controls.dart';
+import 'downloaded_files_selection.dart';
+import 'downloaded_files_sort.dart';
+import 'player/local_image_page.dart';
 import 'player/local_video_page.dart';
 
 class DownloadedFilesPage extends StatefulWidget {
@@ -26,9 +31,12 @@ class _DownloadedFilesPageState extends State<DownloadedFilesPage>
   String _query = '';
   String? _error;
   bool _loading = true;
-  bool _newestFirst = true;
+  DownloadedFilesSort _sort = DownloadedFilesSort.newest;
+  bool _refreshing = false;
   int _generation = 0;
   String _snapshot = '';
+  final _selection = DownloadedFilesSelection();
+  DownloadedFileFilter _filter = DownloadedFileFilter.all;
 
   @override
   bool get wantKeepAlive => true;
@@ -36,6 +44,7 @@ class _DownloadedFilesPageState extends State<DownloadedFilesPage>
   @override
   void initState() {
     super.initState();
+    _selection.addListener(_selectionChanged);
     _store =
         widget.store ??
         DownloadedFileStore(
@@ -49,6 +58,8 @@ class _DownloadedFilesPageState extends State<DownloadedFilesPage>
 
   @override
   void dispose() {
+    _selection.removeListener(_selectionChanged);
+    _selection.dispose();
     WidgetsBinding.instance.removeObserver(this);
     widget.queue.removeListener(_queueChanged);
     super.dispose();
@@ -69,7 +80,9 @@ class _DownloadedFilesPageState extends State<DownloadedFilesPage>
     _refresh();
   }
 
-  Future<void> _refresh() async {
+  Future<void> _refresh({bool feedback = false}) async {
+    if (_refreshing || (feedback && _selection.busy)) return;
+    if (feedback) setState(() => _refreshing = true);
     final generation = ++_generation;
     try {
       final files = await _store.scan();
@@ -79,13 +92,30 @@ class _DownloadedFilesPageState extends State<DownloadedFilesPage>
         _error = null;
         _loading = false;
       });
+      _selection.retain(files);
+      if (feedback) _showMessage('刷新成功，共 ${files.length} 个文件');
     } on Object catch (error) {
       if (!mounted || generation != _generation) return;
       setState(() {
         _error = '读取文件失败：$error';
         _loading = false;
       });
+      if (feedback) _showMessage('刷新失败：$error');
+    } finally {
+      if (feedback && mounted) setState(() => _refreshing = false);
     }
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  void _changeSort(DownloadedFilesSort value) {
+    if (value == _sort) return;
+    setState(() => _sort = value);
+    _showMessage('已按${value.label}排序');
   }
 
   Future<void> _perform(Future<void> Function() action) async {
@@ -115,11 +145,53 @@ class _DownloadedFilesPageState extends State<DownloadedFilesPage>
   Future<void> _open(DownloadedFile file) async {
     if (file.isVideo) {
       await Navigator.of(context).push<void>(
-        MaterialPageRoute(builder: (_) => LocalVideoPage(file: file)),
+        MaterialPageRoute(
+          builder: (_) => LocalVideoPage(
+            file: file,
+            files: _visibleFiles.where((item) => item.isVideo).toList(),
+          ),
+        ),
+      );
+    } else if (file.isImage) {
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          builder: (_) => LocalImagePage(
+            file: file,
+            files: _visibleFiles.where((item) => item.isImage).toList(),
+          ),
+        ),
       );
     } else {
       await DownloadedFileActions.open(file);
     }
+  }
+
+  void _selectionChanged() {
+    if (mounted) setState(() {});
+  }
+
+  List<DownloadedFile> get _visibleFiles {
+    final files = _files
+        .where(
+          (file) =>
+              _filter.matches(file) && file.name.toLowerCase().contains(_query),
+        )
+        .toList();
+    return files..sort(_sort.compare);
+  }
+
+  Future<void> _deleteSelected() => DownloadedFileBatchActions.delete(
+    context: context,
+    files: _selection.selected(_files),
+    selection: _selection,
+    store: _store,
+    queue: widget.queue,
+    refresh: _refresh,
+  );
+
+  void _changeFilter(DownloadedFileFilter value) {
+    setState(() => _filter = value);
+    _selection.clear();
   }
 
   @override
@@ -128,17 +200,34 @@ class _DownloadedFilesPageState extends State<DownloadedFilesPage>
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading: !widget.embedded,
-        title: Text('文件 · ${_files.length}'),
+        title: Text(
+          _selection.selecting
+              ? '已选 ${_selection.count} 项'
+              : '文件 · ${_visibleFiles.length}',
+        ),
         actions: [
-          IconButton(
-            tooltip: _newestFirst ? '改为最早优先' : '改为最新优先',
-            onPressed: () => setState(() => _newestFirst = !_newestFirst),
-            icon: const Icon(Icons.sort),
+          TextButton(
+            onPressed: _selection.busy || _refreshing
+                ? null
+                : () {
+                    if (_selection.selecting) {
+                      _selection.clear(exit: true);
+                    } else {
+                      _selection.enter();
+                    }
+                  },
+            child: Text(_selection.selecting ? '完成' : '选择'),
+          ),
+          DownloadedFilesSortButton(
+            value: _sort,
+            onChanged: _selection.busy || _refreshing ? null : _changeSort,
           ),
           IconButton(
             tooltip: '刷新文件',
-            onPressed: _refresh,
-            icon: const Icon(Icons.refresh),
+            onPressed: _selection.busy || _refreshing
+                ? null
+                : () => _refresh(feedback: true),
+            icon: Icon(_refreshing ? Icons.hourglass_top : Icons.refresh),
           ),
         ],
       ),
@@ -147,29 +236,49 @@ class _DownloadedFilesPageState extends State<DownloadedFilesPage>
           Padding(
             padding: const EdgeInsets.all(16),
             child: TextField(
+              enabled: !_selection.busy,
               decoration: const InputDecoration(
                 prefixIcon: Icon(Icons.search),
                 hintText: '搜索已下载文件',
                 border: OutlineInputBorder(),
               ),
-              onChanged: (value) =>
-                  setState(() => _query = value.toLowerCase()),
+              onChanged: (value) {
+                setState(() => _query = value.toLowerCase());
+                _selection.clear();
+              },
             ),
           ),
-          Expanded(child: _body()),
+          DownloadedFilesFilterBar(
+            filter: _filter,
+            onChanged: _selection.busy ? null : _changeFilter,
+          ),
+          Expanded(
+            child: AbsorbPointer(absorbing: _refreshing, child: _body()),
+          ),
         ],
       ),
+      bottomNavigationBar: _selection.selecting
+          ? DownloadedFilesSelectionBar(
+              selection: _selection,
+              enabled: !_refreshing,
+              visibleFiles: _visibleFiles,
+              onDelete: _deleteSelected,
+              onShare: () => _perform(
+                () => DownloadedFileBatchActions.share(
+                  _selection.selected(_files),
+                  _selection,
+                ),
+              ),
+            )
+          : null,
     );
   }
 
   Widget _body() {
     if (_loading) return const Center(child: CircularProgressIndicator());
-    final filtered = _files
-        .where((file) => file.name.toLowerCase().contains(_query))
-        .toList();
-    final files = _newestFirst ? filtered : filtered.reversed.toList();
+    final files = _visibleFiles;
     return RefreshIndicator(
-      onRefresh: _refresh,
+      onRefresh: () => _refresh(feedback: true),
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
@@ -178,7 +287,7 @@ class _DownloadedFilesPageState extends State<DownloadedFilesPage>
             ListTile(
               title: Text(_error!),
               trailing: TextButton(
-                onPressed: _refresh,
+                onPressed: () => _refresh(feedback: true),
                 child: const Text('重试'),
               ),
             ),
@@ -186,13 +295,16 @@ class _DownloadedFilesPageState extends State<DownloadedFilesPage>
             Padding(
               padding: const EdgeInsets.all(32),
               child: Text(
-                _query.isEmpty ? '还没有下载文件，下载完成后可以在这里播放、预览和分享。' : '没有找到匹配的文件',
+                _files.isEmpty ? '还没有下载文件，下载完成后可以在这里播放、预览和分享。' : '没有找到匹配的文件',
                 textAlign: TextAlign.center,
               ),
             ),
           for (final file in files)
             DownloadedFileTile(
               file: file,
+              selecting: _selection.selecting,
+              selected: _selection.contains(file),
+              onToggle: _selection.busy ? null : () => _selection.toggle(file),
               onOpen: () => _perform(() => _open(file)),
               onShare: () => _perform(() => DownloadedFileActions.share(file)),
               onDelete: () => _delete(file),

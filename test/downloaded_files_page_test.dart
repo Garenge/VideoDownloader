@@ -23,7 +23,9 @@ void main() {
       tester.getTopLeft(find.text('new.mp4')).dy,
       lessThan(tester.getTopLeft(find.text('old.mp4')).dy),
     );
-    await tester.tap(find.byTooltip('改为最早优先'));
+    await tester.tap(find.byTooltip('排序：时间 · 最新优先'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('时间 · 最早优先'));
     await tester.pumpAndSettle();
     expect(
       tester.getTopLeft(find.text('old.mp4')).dy,

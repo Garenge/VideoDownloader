@@ -9,34 +9,49 @@ class DownloadedFileTile extends StatelessWidget {
     required this.onOpen,
     required this.onShare,
     required this.onDelete,
+    this.selecting = false,
+    this.selected = false,
+    this.onToggle,
   });
   final DownloadedFile file;
   final VoidCallback onOpen;
   final VoidCallback onShare;
   final VoidCallback onDelete;
+  final bool selecting;
+  final bool selected;
+  final VoidCallback? onToggle;
 
   @override
   Widget build(BuildContext context) => Card(
     child: ListTile(
       key: ValueKey(file.path),
-      leading: _thumbnail(),
+      leading: selecting
+          ? Checkbox(
+              value: selected,
+              onChanged: onToggle == null ? null : (_) => onToggle!(),
+            )
+          : _thumbnail(),
       title: Text(file.name, maxLines: 2, overflow: TextOverflow.ellipsis),
       subtitle: Text(
         '${_size()} · ${file.extension.toUpperCase()}\n${_date()}',
       ),
       isThreeLine: true,
-      onTap: onOpen,
-      trailing: PopupMenuButton<String>(
-        tooltip: '文件操作',
-        onSelected: (value) => value == 'share' ? onShare() : onDelete(),
-        itemBuilder: (_) => [
-          PopupMenuItem(
-            value: 'share',
-            child: Text(Platform.isIOS ? '分享或导出' : '用系统应用打开'),
-          ),
-          const PopupMenuItem(value: 'delete', child: Text('删除文件')),
-        ],
-      ),
+      selected: selected,
+      onTap: selecting ? onToggle : onOpen,
+      onLongPress: onToggle,
+      trailing: selecting
+          ? null
+          : PopupMenuButton<String>(
+              tooltip: '文件操作',
+              onSelected: (value) => value == 'share' ? onShare() : onDelete(),
+              itemBuilder: (_) => [
+                PopupMenuItem(
+                  value: 'share',
+                  child: Text(Platform.isIOS ? '分享或导出' : '用系统应用打开'),
+                ),
+                const PopupMenuItem(value: 'delete', child: Text('删除文件')),
+              ],
+            ),
     ),
   );
 

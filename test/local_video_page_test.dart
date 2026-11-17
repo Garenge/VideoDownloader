@@ -36,13 +36,18 @@ void main() {
     await tester.pump();
   }
 
-  Future<void> openPlayer(WidgetTester tester) async {
+  Future<void> openPlayer(
+    WidgetTester tester, {
+    List<DownloadedFile> files = const [],
+  }) async {
     await tester.pumpWidget(
       MaterialApp(
         home: Builder(
           builder: (context) => TextButton(
             onPressed: () => Navigator.of(context).push<void>(
-              MaterialPageRoute(builder: (_) => LocalVideoPage(file: file)),
+              MaterialPageRoute(
+                builder: (_) => LocalVideoPage(file: file, files: files),
+              ),
             ),
             child: const Text('打开视频'),
           ),
@@ -144,6 +149,58 @@ void main() {
     await tester.tap(find.text('重试'));
     await pumpPlayer(tester);
     expect(platform.playing, isNotEmpty);
+    await removePlayer(tester);
+  });
+
+  testWidgets(
+    'vertical swipes change videos, release old player and show bounds',
+    (tester) async {
+      final next = DownloadedFile(
+        '${directory.path}/next.mp4',
+        1,
+        DateTime(2026),
+      );
+      File(next.path).writeAsBytesSync([0]);
+      await openPlayer(tester, files: [file, next]);
+      final surface = find.byType(VideoPlayerSurface);
+      await tester.drag(surface, const Offset(120, 0));
+      await pumpPlayer(tester);
+      expect(platform.sources, hasLength(1));
+      await tester.drag(surface, const Offset(0, -180));
+      await pumpPlayer(tester);
+      expect(find.textContaining('next.mp4 · 2 / 2'), findsOneWidget);
+      expect(platform.sources, hasLength(2));
+      expect(platform.disposed, hasLength(1));
+      expect(platform.playing, hasLength(1));
+      await tester.drag(surface, const Offset(0, -180));
+      await pumpPlayer(tester);
+      expect(find.text('已经是最后一个视频'), findsOneWidget);
+      expect(platform.sources, hasLength(2));
+      await tester.drag(surface, const Offset(0, 180));
+      await pumpPlayer(tester);
+      expect(find.textContaining('sample.mp4 · 1 / 2'), findsOneWidget);
+      expect(platform.disposed, hasLength(2));
+      await removePlayer(tester);
+      expect(platform.playing, isEmpty);
+    },
+  );
+
+  testWidgets('failed video can be swiped away without opening its decoder', (
+    tester,
+  ) async {
+    File(file.path).deleteSync();
+    final next = DownloadedFile(
+      '${directory.path}/working.mp4',
+      1,
+      DateTime(2026),
+    );
+    File(next.path).writeAsBytesSync([0]);
+    await openPlayer(tester, files: [file, next]);
+    expect(find.textContaining('无法播放此视频'), findsOneWidget);
+    await tester.drag(find.byType(VideoPlayerSurface), const Offset(0, -180));
+    await pumpPlayer(tester);
+    expect(platform.sources, hasLength(1));
+    expect(platform.playing, hasLength(1));
     await removePlayer(tester);
   });
 }

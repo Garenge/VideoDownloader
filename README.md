@@ -64,6 +64,25 @@ described below differs from the iOS feature set.
 - The file library reads actual download directories independently of history,
   with search, date sorting, refresh, and confirmed file deletion. On iOS,
   files support native video playback, image preview, and sharing.
+- New X downloads use the post ID as their filename. Multiple attachments
+  use `postID-1`, `postID-2`, etc., in parsed attachment order, including
+  mixed photos and videos. Downloading a subset preserves those indexes;
+  duplicate filenames add ` (2)`, ` (3)`, etc. Existing files keep their names.
+- The file library supports All / Images / Videos filters and selection by
+  long press or the Select action. Select All applies to the current search
+  and filter; changing either clears the selection. Batch deletion confirms
+  the count, removes matching download records, and keeps failed files selected.
+  On iOS, selected files can be shared or exported together in one system sheet.
+- File sorting supports both directions for modification time, size, and
+  natural filename order (`post-2` before `post-10`). Manual refresh and sort
+  changes show feedback; automatic refresh stays quiet.
+- Local video playback follows the current filtered and sorted video list.
+  Swipe up/down for next/previous, drag horizontally to seek, hold for temporary
+  2x playback, and double tap for fullscreen. Switching releases the old player.
+- Images open in an in-app gallery following the current image list, with
+  horizontal or vertical paging, pinch zoom, double-tap zoom/reset, and sharing.
+  Panning a zoomed image does not turn pages. At normal scale, swiping across
+  the paging axis dismisses the preview; the toolbar also provides a back button.
 - YouTube download now uses a two-stage strategy:
   `youtube_explode_dart` first, then `yt-dlp` fallback when needed.
 - Platform-specific Douyin and Bilibili parsers are not connected yet.

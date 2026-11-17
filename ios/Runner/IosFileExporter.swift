@@ -3,17 +3,30 @@ import UIKit
 
 final class IosFileExporter {
   func export(path: String?, result: @escaping FlutterResult) {
-    guard let url = IosMediaBridge.documentURL(path),
-          FileManager.default.fileExists(atPath: url.path)
+    export(paths: path.map { [$0] }, result: result)
+  }
+
+  func export(paths: [String]?, result: @escaping FlutterResult) {
+    guard let paths, !paths.isEmpty else {
+      result(FlutterError(code: "missing_file", message: "请选择要分享的文件", details: nil))
+      return
+    }
+    let urls = paths.compactMap { IosMediaBridge.documentURL($0) }
+    guard urls.count == paths.count,
+          urls.allSatisfy({ FileManager.default.fileExists(atPath: $0.path) })
     else {
       result(FlutterError(code: "missing_file", message: "下载文件不存在", details: nil))
       return
     }
+    present(urls: urls, result: result)
+  }
+
+  private func present(urls: [URL], result: @escaping FlutterResult) {
     guard let presenter = Self.presenter(), presenter.presentedViewController == nil else {
       result(FlutterError(code: "unavailable", message: "请先关闭当前弹窗后重试", details: nil))
       return
     }
-    let sheet = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+    let sheet = UIActivityViewController(activityItems: urls, applicationActivities: nil)
     if let popover = sheet.popoverPresentationController {
       popover.sourceView = presenter.view
       popover.sourceRect = CGRect(

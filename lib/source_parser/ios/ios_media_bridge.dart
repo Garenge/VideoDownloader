@@ -20,6 +20,9 @@ class IosMediaBridge {
   Future<void> exportFile(String path) =>
       channel.invokeMethod<void>('exportFile', path);
 
+  Future<void> exportFiles(List<String> paths) =>
+      channel.invokeMethod<void>('exportFiles', paths);
+
   Future<void> previewFile(String path) =>
       channel.invokeMethod<void>('previewFile', path);
 
